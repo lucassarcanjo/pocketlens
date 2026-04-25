@@ -1,0 +1,59 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Xcode
+build/
+DerivedData/
+*.xcworkspace
+!default.xcworkspace
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.swp
+
+# XcodeGen regenerates this from project.yml
+app/PocketLens.xcodeproj/
+# Safety net if xcodegen is run without `--project app`
+/PocketLens.xcodeproj/
+
+# Swift Package Manager
+.build/
+Package.resolved
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+.swiftpm/
+
+# CocoaPods (not used, but just in case)
+Pods/
+
+# Carthage (not used)
+Carthage/Build/
+
+# fastlane (not used)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Local user settings
+*.xcscmblueprint
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Code coverage
+*.gcda
+*.gcno
+
+# Accidentally committed statements
+fixtures/statements/*.pdf.orig
+fixtures/statements/*-private.pdf
+
+# Local env
+.env
+.env.local
+*.local

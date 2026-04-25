@@ -1,0 +1,90 @@
+name: PocketLens
+
+options:
+  bundleIdPrefix: com.pocketlens
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  xcodeVersion: "15.0"
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+
+packages:
+  Domain:
+    path: ../packages/Domain
+  Persistence:
+    path: ../packages/Persistence
+  Importing:
+    path: ../packages/Importing
+  Categorization:
+    path: ../packages/Categorization
+  LLM:
+    path: ../packages/LLM
+
+targets:
+  PocketLens:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: PocketLens
+        excludes:
+          - "Info.plist"
+          - "PocketLens.entitlements"
+    info:
+      path: PocketLens/Info.plist
+    entitlements:
+      path: PocketLens/PocketLens.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pocketlens.app
+        PRODUCT_NAME: PocketLens
+        MARKETING_VERSION: "0.1.0-dev"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - package: Domain
+      - package: Persistence
+      - package: Importing
+      - package: Categorization
+      - package: LLM
+
+  PocketLensTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: PocketLensTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pocketlens.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: PocketLens
+
+schemes:
+  PocketLens:
+    build:
+      targets:
+        PocketLens: all
+        PocketLensTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - PocketLensTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
