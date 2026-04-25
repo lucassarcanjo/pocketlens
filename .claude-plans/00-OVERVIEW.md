@@ -7,11 +7,11 @@ This folder is the durable memory between Claude sessions. Every session starts 
 | # | Phase | Version | Status | Plan File |
 |---|---|---|---|---|
 | 0 | Bootstrap | — | ✅ done | [01-phase-0-bootstrap.md](01-phase-0-bootstrap.md) |
-| 1 | MVP Import | v0.1 | ⏭ ready | [02-phase-1-mvp.md](02-phase-1-mvp.md) |
-| 2 | Local Memory | v0.2 | ⏸ blocked by Phase 1 | [03-phase-2-memory.md](03-phase-2-memory.md) |
+| 1 | LLM-Powered Statement Import | v0.1 | ⏭ ready | [02-phase-1-mvp.md](02-phase-1-mvp.md) |
+| 2 | Local Memory & Rules | v0.2 | ⏸ blocked by Phase 1 | [03-phase-2-memory.md](03-phase-2-memory.md) |
 | 3 | Dashboard | v0.3 | ⏸ blocked by Phase 2 | [04-phase-3-dashboard.md](04-phase-3-dashboard.md) |
 | 4 | Bank Statement Import | v0.4 | ⏸ blocked by Phase 3 | [05-phase-4-bank.md](05-phase-4-bank.md) |
-| 5 | LLM | v0.5 | ⏸ blocked by Phase 4 | [06-phase-5-llm.md](06-phase-5-llm.md) |
+| 5 | LLM Expansion (Ollama, OpenAI, assist features) | v0.5 | ⏸ blocked by Phase 4 | [06-phase-5-llm.md](06-phase-5-llm.md) |
 | 6 | Automation | v0.6 | ⏸ blocked by Phase 5 | [07-phase-6-automation.md](07-phase-6-automation.md) |
 
 **Legend:** ✅ done · 🔄 in progress · ⏭ ready to start · ⏸ blocked · ❌ blocked by issue
@@ -85,6 +85,8 @@ These are binding choices made during planning. Revisit only with explicit user 
 - **Build tool:** XcodeGen — `app/project.yml` is source of truth, `.xcodeproj` is regenerated and gitignored. Run `cd app && xcodegen generate` (or `make gen`).
 - **Minimum macOS:** 14.0 Sonoma.
 - **License:** MIT.
-- **Persistence:** SQLite (library choice deferred to Phase 1).
-- **Module split:** 5 SPM packages — `Domain`, `Persistence`, `Importing` (includes parsing), `Categorization`, `LLM`.
-- **Privacy:** Local-first. Cloud LLM is opt-in with explicit consent. API keys in macOS Keychain.
+- **Persistence:** SQLite via **GRDB.swift v6.x** (locked Phase 1).
+- **Module split:** 5 SPM packages — `Domain`, `Persistence`, `Importing`, `Categorization`, `LLM`.
+- **Statement extraction:** **LLM-driven**, not bank-specific code. Anthropic Claude (Sonnet 4.6 default) is the Phase 1 provider, with `MockLLMProvider` for tests. New issuers are a fixture + (optionally) a small prompt addendum, not a new parser class.
+- **Privacy:** PocketLens **is** an LLM-extraction tool — there is no non-LLM mode and no manual-entry fallback. If a user doesn't want their statement text sent to an LLM, this app isn't for them. Disclosure happens twice with low friction: a one-liner on first-launch onboarding (where the user pastes their Anthropic API key) and a one-liner inline on the drop zone ("By uploading you agree to send the redacted text to Anthropic Claude — not used for training"). Pre-LLM redaction strips full card numbers, CPF/CNPJ, and street addresses. Keys live in macOS Keychain. In Phase 5, users may swap providers (Ollama / OpenAI) — the disclosure line on the drop zone updates accordingly.
+- **License author:** Lucas Arcanjo (MIT).

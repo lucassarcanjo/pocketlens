@@ -1,57 +1,76 @@
-# Phase 5 — LLM (v0.5)
+# Phase 5 — LLM Expansion (v0.5)
+
+## Context
+
+The LLM **provider abstraction**, **Anthropic provider**, **Keychain key storage**, **redaction**, **first-launch disclosure**, and **structured-output extraction** all shipped in Phase 1 because the MVP import path depends on them. This phase fills out the rest of spec §13: a local-LLM path, additional cloud providers, and assistant features that go beyond extraction.
 
 ## Goal
-Optional AI assistance for categorization, monthly explanations, and rule suggestions — with explicit user consent and a visible data-flow story. The core app must still work without any LLM configured.
 
-## Definition of Done (per spec §13)
-- [ ] `LLMProvider` protocol with `categorize` and `explainMonth` methods.
-- [ ] Four concrete providers: `MockProvider`, `OllamaProvider`, `OpenAIProvider`, `AnthropicProvider`.
-- [ ] API keys stored in macOS Keychain; never written to disk in plaintext.
-- [ ] Privacy Mode setting (spec §13.3): `No LLM | Local LLM | Cloud LLM`.
-- [ ] Consent dialog before first cloud LLM call showing exactly what will be sent.
-- [ ] Low-confidence transactions get an LLM categorization suggestion (priority 6 in §11.1).
-- [ ] Monthly explanation feature on dashboard ("Explain this month" button, spec §8.4).
-- [ ] Rule suggestions — LLM proposes rules after bulk corrections.
-- [ ] Full PDF content NEVER sent to cloud providers. Only summarized transaction data.
+Make LLM use flexible (provider-agnostic), local-friendly (Ollama), and useful beyond extraction (categorization assist, monthly explanation, rule suggestions). PocketLens remains LLM-only — there is still no "no LLM" mode and no manual-entry fallback.
+
+## Definition of Done
+
+- [ ] `OllamaProvider` works against a user-configured endpoint (default `http://localhost:11434`) and a user-chosen local model.
+- [ ] `OpenAIProvider` works against `api.openai.com` with a Keychain-stored key.
+- [ ] Provider picker in Settings — single global selection (Anthropic / OpenAI / Ollama). Per-feature overrides are deferred unless real usage demands them.
+- [ ] The drop-zone disclosure line updates to match the active provider: "Anthropic Claude" / "OpenAI" / "your local Ollama instance".
+- [ ] Selecting Ollama auto-detects whether the endpoint is reachable; if not, the import button is disabled with an inline hint.
+- [ ] **Categorization assist:** for low-confidence transactions (priority 6 in §11.1), the configured provider proposes a category. Surfaces as a badge in the review UI; one-click accept/reject.
+- [ ] **"Explain this month":** dashboard button generates a short narrative from `MonthlySummary` aggregates (NOT raw transactions).
+- [ ] **Rule suggestions:** after several user corrections in the same merchant/category, the configured provider proposes a `CategorizationRule`.
+- [ ] Cost dashboard in Settings — running totals per provider per month, sourced from `import_batches.llm_cost_usd` and a new `llm_calls` table.
+- [ ] Prompt-snapshot tests cover all task types so silent drift is caught in PR review.
 
 ## Tasks
 
 ### LLM package
-- [ ] `LLMProvider` protocol matching spec §13.1 signature.
-- [ ] `CategorizationContext` value type — includes recent user corrections, category list, merchant aliases.
-- [ ] `MonthlySummary` value type — aggregates (NOT raw transaction lines) for `explainMonth`.
-- [ ] `MockProvider` — returns deterministic fake responses for tests.
-- [ ] `OllamaProvider` — HTTP POST to user-configured endpoint (default `http://localhost:11434`).
-- [ ] `OpenAIProvider` — uses Keychain-stored API key, respects model selection.
-- [ ] `AnthropicProvider` — uses Keychain-stored API key.
-- [ ] `PromptBuilder` — generates the prompts per task type, with a central place to audit them.
-- [ ] `DataRedactor` — strips account numbers, card digits, person names from anything sent to cloud providers.
+
+- [ ] `OllamaProvider` — POST `/api/chat` with the user's chosen model. Streaming optional. No API key required.
+- [ ] `OpenAIProvider` — Chat Completions API; tool-use mode for structured outputs.
+- [ ] Extend `LLMProvider` protocol:
+  ```swift
+  func categorize(transaction: Transaction, context: CategorizationContext) async throws -> CategorizationSuggestion
+  func summarizeMonth(summary: MonthlySummary) async throws -> String
+  func suggestRule(corrections: [UserCorrection]) async throws -> CategorizationRuleDraft?
+  ```
+- [ ] `CategorizationContext` — current category list + merchant alias (if any) + up to 5 recent similar (description, category) pairs. Crucially: NO statement-level data, NO unrelated transactions.
+- [ ] `MonthlySummary` — top-level totals + category breakdown + top merchants + largest N transactions (descriptions only, no card numbers). NEVER includes raw statement data.
+- [ ] `PromptCatalog` — replaces `ExtractionPromptV1` with a registry of versioned prompts per task; each task picks its prompt version explicitly. Snapshot tests lock down the text.
+- [ ] `ProviderRegistry` — single source of truth for the active provider. Each task (`extract`, `categorize`, `summarize`) reads it lazily.
 
 ### Persistence
-- [ ] Store LLM suggestions separately from user-confirmed categorizations so we can tell them apart.
-- [ ] Cache recent LLM responses (optional; reduces cost + latency).
+
+- [ ] `llm_calls` table — `id, provider, model, task, input_tokens, output_tokens, cost_usd, created_at, related_entity_id`. Drives the cost dashboard.
+- [ ] `llm_suggestions` table — caches `categorize` results so repeated reviews of the same transaction don't re-spend.
 
 ### App target
-- [ ] Settings → LLM section: provider picker, Ollama endpoint, API key fields (Keychain-backed), model selection per provider.
-- [ ] Privacy Mode radio.
-- [ ] Consent dialog component.
-- [ ] "Explain this month" button + result view (plain text, copyable).
-- [ ] LLM suggestion surfacing in the review screen (badge + one-click accept/reject).
+
+- [ ] Settings → LLM section: per-feature provider picker + endpoint/model fields + Keychain key inputs.
+- [ ] "Explain this month" button on Dashboard (Phase 3 ships dashboard; this phase wires the LLM call to it).
+- [ ] LLM-suggested category badge in Transactions table; one-click accept/reject.
+- [ ] Rule-suggestion sheet that appears after N (default 3) consistent corrections in the same merchant.
+- [ ] Cost dashboard view in Settings.
 
 ## Dependencies
-- Requires Phase 2 ✅ (categorization priority chain has a slot for LLM suggestions).
-- Requires Phase 3 ✅ (dashboard's monthly summary is the input to `explainMonth`).
+
+- Phase 1 ✅ — provider protocol + Anthropic + redaction + Keychain + first-launch disclosure already exist.
+- Phase 2 ✅ — categorization priority chain has the slot for LLM suggestions.
+- Phase 3 ✅ — dashboard provides `MonthlySummary` aggregates.
 
 ## Test Coverage
-- Prompt snapshot tests — lock down the exact prompt text sent to each provider.
-- Redactor tests — assert sensitive fields are gone from redacted payloads.
-- MockProvider fulfills the protocol and supports all higher-level tests without network.
-- Privacy Mode tests — in `No LLM`, assert no provider is ever invoked; in `Local LLM`, assert only Ollama.
+
+- `MockLLMProvider` extended with deterministic `categorize / summarizeMonth / suggestRule` responses.
+- Snapshot tests for every prompt template.
+- Redactor regression tests — assert all task contexts pass through redaction (not just extraction).
+- Provider-routing tests — switching the active provider in Settings sends every subsequent task to the new provider and only the new provider; no accidental fallback.
+- Cost-tracking tests — `llm_calls` rows accumulate correctly; dashboard query returns expected aggregates.
 
 ## Open Questions
-- Default model choices per provider (likely claude-sonnet-4-6 and gpt-4o-mini; check cost/latency tradeoff).
-- Whether to pre-compute embeddings locally for similarity (or rely on Phase 2's lexical similarity).
-- Rate limiting and cost display — surface an estimated monthly spend in Settings.
+
+- Default Ollama model recommendation (`llama3.2`? `qwen2.5`? `deepseek-r1` for reasoning?). Document in `llm-integration.md` as a "Tested with…" matrix.
+- Whether to attempt local extraction with Ollama at all in v0.5 or restrict local mode to categorization/summary (extraction needs strong tool-use; many local models stumble). Lean toward: extraction stays cloud-required in v0.5, local handles the lighter tasks. Re-evaluate with newer local models.
+- Cost-control mechanism — soft warning vs hard cap vs monthly budget.
 
 ## Next Action
-Write the `LLMProvider` protocol + `MockProvider` first. Then build Settings UI + Privacy Mode gating before wiring any real providers.
+
+Add `OllamaProvider` with a 3-line system prompt and a `summarize` task as the smoke test. Validate the routing layer with Privacy-Mode tests before exposing the provider picker in Settings.

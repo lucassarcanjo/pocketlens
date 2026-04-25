@@ -1,28 +1,35 @@
 # Architecture
 
-PocketLens is a native macOS SwiftUI app split into a thin UI layer and five domain-focused Swift packages. The goal is a **local-first, privacy-respecting** personal finance tool that works end-to-end without any network connection.
+PocketLens is a native macOS SwiftUI app split into a thin UI layer and five domain-focused Swift packages. Storage is local; statement extraction in v0.1 depends on a cloud LLM (Claude). Local-LLM extraction (Ollama) is planned for v0.5.
 
 ## High-Level Data Flow
 
 ```mermaid
 flowchart TD
-    A[Credit Card Statement PDF] --> B[PDF Importer]
-    C[Bank Statement CSV/OFX/PDF] --> D[Statement Importer]
+    A[Credit-Card Statement PDF] --> B[PDFTextExtractor]
+    B --> R[Redactor]
+    R --> L[LLMStatementExtractor]
+    L --> EV[ExtractionValidator]
 
-    B --> E[Transaction Normalizer]
-    D --> E
+    C[Bank Statement CSV/OFX] --> D[CSV/OFX Importer]
 
-    E --> F[Deduplication Engine]
-    F --> G[Categorization Engine]
+    EV --> N[MerchantNormalizer]
+    D --> N
 
-    G --> H[Local Memory]
-    G --> I[LLM Adapter]
+    N --> F[DeduplicationEngine]
+    F --> G[CategorizationEngine]
 
-    H --> J[(SQLite)]
+    G --> H[Local Memory + Rules]
+    G --> I[LLM Suggestion]
+
+    H --> J[(SQLite via GRDB)]
     I --> J
+    F --> J
 
-    J --> K[Native macOS Dashboard]
+    J --> K[Native macOS UI]
 ```
+
+The LLM is **on the critical path for PDF extraction** in v0.1, and a **lower-priority assist** in the categorization chain (Phase 2+).
 
 ## Module Layout
 
@@ -30,11 +37,11 @@ All domain logic lives in Swift Packages under `packages/`. The app target under
 
 | Package | Responsibility |
 |---|---|
-| `Domain` | Pure value types: entities (`Transaction`, `Merchant`, `Category`, `ImportBatch`, `Account`, `Card`, `CategorizationRule`, `UserCorrection`), enums, `Money` value type. No dependencies on persistence, UI, or networking. |
-| `Persistence` | SQLite wrapper, schema migrations, repositories (one per entity), default-data seeding, aggregate queries for the dashboard. Hides the SQL library behind its own interface. |
-| `Importing` | File intake (drag-and-drop, file picker, future folder watcher), PDF/CSV/OFX parsers, transaction normalization, deduplication engine, parser diagnostics. |
-| `Categorization` | Priority-ordered categorization engine: user-correction memory → merchant alias → user rule → keyword rule → similarity → LLM suggestion → uncategorized. Emits confidence scores and reason strings. |
-| `LLM` | `LLMProvider` protocol and concrete providers (mock, Ollama, OpenAI, Anthropic). Keychain-backed API keys. Redacts sensitive fields before any outbound call. |
+| `Domain` | Pure value types: entities (`Transaction`, `Merchant`, `Category`, `ImportBatch`, `Account`, `Card`, `CategorizationRule`, `UserCorrection`), enums (`TransactionType`, `PurchaseMethod`, `Currency`), `Money` value type. No dependencies on persistence, UI, or networking. |
+| `Persistence` | GRDB.swift wrapper, schema migrations, repositories (one per entity), default-data seeding, aggregate queries. Hides GRDB behind its own interface. |
+| `Importing` | File intake (drag-and-drop, file picker, future folder watcher), PDF text extraction (PDFKit), `LLMStatementExtractor` orchestrator, validator, normalization, dedup, CSV/OFX importers (Phase 4). Depends on `LLM`. |
+| `Categorization` | Priority-ordered categorization engine: user-correction memory → merchant alias → user rule → keyword rule → similarity → LLM suggestion (Phase 2+) → uncategorized. Emits confidence scores and reason strings. |
+| `LLM` | `LLMProvider` protocol; `MockLLMProvider` + `AnthropicProvider` ship in Phase 1. `OllamaProvider` + `OpenAIProvider` in Phase 5. Owns the extraction prompt, tool schema, redactor, and Keychain-backed API key store. |
 
 ## Dependency Direction
 
@@ -53,18 +60,19 @@ All domain logic lives in Swift Packages under `packages/`. The app target under
 
 - `Domain` depends on nothing in the project.
 - `Persistence`, `Importing`, `Categorization`, `LLM` all depend on `Domain`.
-- `Persistence` additionally depends on an external SQLite library (GRDB.swift or SQLite.swift — decision deferred to Phase 1).
-- `Categorization` depends on `Persistence` for reading memory and rules.
-- `Importing` depends on `Persistence` for writing `ImportBatch` + transactions and on `Categorization` for categorizing parsed transactions.
-- `LLM` depends only on `Domain` (it receives context objects, not raw DB access).
+- `Persistence` additionally depends on **GRDB.swift v6.x**.
+- `Categorization` depends on `Persistence` for reading memory and rules, and on `LLM` (Phase 2+) for assist suggestions.
+- `Importing` depends on `Persistence` for writing `ImportBatch` + transactions, on `Categorization` for categorizing extracted transactions, and on `LLM` for statement extraction (Phase 1).
+- `LLM` depends only on `Domain` (it receives context objects, not raw DB access). It owns prompts, schema, redaction, and Keychain access.
 - The app target depends on all four feature packages.
 
 ## Build System
 
 - **XcodeGen** generates `app/PocketLens.xcodeproj` from `app/project.yml` (the spec lives alongside the project so spec-dir = Xcode `SRCROOT`).
 - The `.xcodeproj` file itself is **gitignored** — treat `app/project.yml` as the source of truth.
-- `Makefile` targets: `make gen`, `make build`, `make test`, `make fmt`.
+- `Makefile` targets: `make gen`, `make build`, `make test`, `make test-integration` (real LLM calls; opt-in), `make fmt`.
 - Minimum macOS target: **14.0 Sonoma**.
+- App Sandbox is currently disabled (entitlements file is empty). Re-enable with explicit network + user-selected file entitlements when Phase 6 lands the folder watcher.
 
 ## Why SQLite (not SwiftData)?
 

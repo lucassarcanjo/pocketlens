@@ -14,10 +14,11 @@ The `CategorizationEngine` evaluates strategies in this fixed order. The first h
 1. **Exact user correction** — this exact transaction (or matching fingerprint) was previously re-categorized by the user.
 2. **Merchant alias match** — normalized description collapses to a known merchant that has a preferred category.
 3. **User-created rule** — highest-priority enabled rule whose pattern matches.
-4. **Keyword rule** — system-seeded rules (e.g., `contains "UBER"` → Transportation).
-5. **Similar transaction match** — cosine/Jaccard similarity above threshold against a previously-categorized transaction.
-6. **LLM suggestion** — available only if an LLM provider is configured (Phase 5). Always stored as a suggestion, not applied automatically unless confidence is above a user-configurable threshold.
-7. **Uncategorized / needs review** — nothing matched.
+4. **Bank-category mapping** — the issuer's own category label (`bank_category_raw` on the transaction, e.g. Itaú's `ALIMENTAÇÃO`/`VEÍCULOS`/`TURISMO E ENTRETENIM.`) maps to a PocketLens category via a seeded table. High-quality prior because the issuer already classified the merchant.
+5. **Keyword rule** — system-seeded rules (e.g., `contains "UBER"` → Transportation).
+6. **Similar transaction match** — cosine/Jaccard similarity above threshold against a previously-categorized transaction.
+7. **LLM suggestion** — available only if a provider is configured (Phase 5). Stored as a suggestion, not applied automatically unless confidence is above a user-configurable threshold.
+8. **Uncategorized / needs review** — nothing matched.
 
 ## Confidence Tiers
 
@@ -37,6 +38,7 @@ Each strategy emits confidence within a well-defined band:
 | Exact user correction | 1.00 |
 | Merchant alias | 0.95 |
 | User-created rule | 0.90 |
+| Bank-category mapping | 0.85 |
 | Keyword rule | 0.80 |
 | Similarity | 0.50 – 0.85 (scales with similarity score) |
 | LLM suggestion | Whatever the provider returns (capped at 0.80 unless user-configured higher) |

@@ -1,85 +1,81 @@
-# Parsers
+# Statement Extraction
 
-PocketLens imports financial data by running a file through a **parser** that produces a `ParsedStatement` DTO — a neutral representation the rest of the pipeline can consume.
+PocketLens does **not** ship per-bank parser classes. Statement extraction is LLM-driven: PDFKit pulls page-by-page text, a `Redactor` scrubs sensitive patterns, and the `LLMStatementExtractor` calls a configured `LLMProvider` (default: `AnthropicProvider`) with a strict tool-use schema. The provider returns a structured `ExtractedStatement` JSON the rest of the pipeline consumes.
 
-## Parser Contract
+This means adding support for a new bank/issuer is, in most cases, **adding a fixture** — not writing code.
 
-Every parser conforms to a small protocol (full signature lives in `packages/Importing/Sources/Importing/`):
+## Why no per-bank parsers?
 
-```swift
-protocol StatementParser {
-    static var parserName: String { get }
-    static var parserVersion: String { get }
+The original v0.1 design called for `ItauInvoiceParser`, `NubankParser`, etc. — one Swift class per bank. We chose against it after the first real fixture: the Itaú Personnalité PDF includes multi-card sections, installment lines, virtual-card and digital-wallet glyphs, international transactions with FX columns, and a forecast section that must be excluded. Encoding all of that as regexes is brittle, and every bank has its own quirks. An LLM with a strict schema does it more reliably, and the same code path covers every issuer.
 
-    /// Given raw file bytes (or extracted PDF text), return a structured result.
-    func parse(_ input: ParserInput) throws -> ParsedStatement
-}
-```
+## The contract
 
-A `ParsedStatement` contains:
+The single contract is the `ExtractedStatement` JSON schema (see [`llm-integration.md`](llm-integration.md)). Every provider must return data conforming to it. Validation is enforced two ways:
 
-- A list of `ParsedTransaction` (date, raw description, amount, card last digits, installment info when present)
-- Statement-level fields: period start/end, total, due date, card holder (when available)
-- `ParserDiagnostics`: counts (transactions found, warnings) and any unrecognized sections
+1. **Schema-side** — the LLM is constrained to the tool's JSON schema by the provider.
+2. **Statement-side** — `ExtractionValidator` sums extracted transactions per card and overall, and asserts they match the totals **printed on the statement** (`Lançamentos no cartão (final XXXX)`, `Total dos lançamentos atuais`) within ±R$0.01.
 
-The parser does **NOT** normalize descriptions, dedupe, or assign categories. Those are separate concerns handled downstream. This keeps parsers testable with a single fixture-based assertion per bank.
+Mismatches don't reject the import — they mark `ImportBatch.validation_status = warning` and surface diagnostics in the Imports view.
 
-## File Type Detection
+## File-type routing (v0.1)
 
-`PDFImporter`, `CSVImporter`, and `OFXImporter` route by extension (and sniff the first bytes for safety). They then select the correct parser:
+| Extension | Path |
+|---|---|
+| `.pdf` | `PDFTextExtractor` → `LLMStatementExtractor` → `ExtractedStatement` |
+| `.csv` (Phase 4) | `CSVImporter` with per-account column mapping → direct `Transaction` rows (no LLM) |
+| `.ofx` (Phase 4) | `OFXImporter` (structured, single parser handles all banks) |
 
-- **PDF credit card statements** → per-issuer parsers (e.g., `ItauInvoiceParser`) — the parser is chosen by inspecting the extracted text for an issuer signature (header string, logo OCR, etc.).
-- **CSV** → `CSVImporter` with per-account column-mapping config.
-- **OFX** → `OFXImporter` — structured format, single parser covers most banks.
+CSV/OFX deliberately bypass the LLM — they are already structured, sending them to a model would be wasteful and add latency.
 
 ## Fixtures
-
-Each parser has a matching fixture pair:
 
 ```
 fixtures/
 ├── statements/
-│   └── itau-2025-11.pdf
+│   └── itau-personnalite-2026-03-private.pdf       # gitignored
 └── expected-output/
-    └── itau-2025-11.json
+    └── itau-personnalite-2026-03.json              # canonical ExtractedStatement
 ```
 
-The JSON is the canonical expected output — a list of `ParsedTransaction` objects plus statement-level fields. Tests load the PDF, run the parser, and assert deep equality against the JSON.
+Each fixture pair drives one parser test:
+1. Mock provider loads `expected-output/<name>.json` as its canned response.
+2. Pipeline runs against `statements/<name>.pdf`.
+3. Test asserts: file hash captured, transaction count matches, per-card subtotals validate, fingerprint dedup works.
 
-**Rules for fixtures:**
+**Naming:** `<bank>-<product>-<yyyy-mm>[-private].pdf`. The `-private.pdf` suffix is gitignored — use it for any statement you can't publish openly.
 
-- Real statements should be **anonymized** — replace names, card digits with obvious placeholders, keep the layout intact. An anonymization script belongs in `scripts/` (future).
-- Add a new fixture for every parser bug fix. The fixture is the regression test.
-- Commit only PDFs you're comfortable publishing under the repo's open-source license.
+## Adding support for a new issuer
 
-## Adding a New Parser
+In most cases, just add a fixture pair. The LLM handles arbitrary layouts.
 
-1. Create `packages/Importing/Sources/Importing/<Bank>InvoiceParser.swift`.
-2. Implement `StatementParser`.
-3. Add a fixture pair to `fixtures/`.
-4. Add `<Bank>InvoiceParserTests.swift` that loads the fixture and asserts equality.
-5. Register the parser in the importer's lookup table.
-6. Update this doc's "Supported Parsers" list.
+If the issuer has unusual quirks the model gets wrong (e.g., a non-Brazilian statement format, a custom installment encoding, or an oddly-named forecast section), add a small **prompt addendum** to `ExtractionPromptV1.swift` describing the quirk. Bump the prompt version constant if you change behavior on existing fixtures.
 
-## Parser Diagnostics
+Workflow:
 
-Every import attempts to fill a `ParserDiagnostics` record that gets stored alongside the `ImportBatch`:
+1. Anonymize a sample statement — replace names and card digits with placeholders, keep the layout intact. Or commit it as `<name>-private.pdf` (gitignored) for personal testing.
+2. Drop the file in `fixtures/statements/`.
+3. Run the import once against a real provider, eyeball the output, save the verified JSON to `fixtures/expected-output/<name>.json`. (Once verified, that file is canonical — diffs show drift.)
+4. Add a test in `packages/Importing/Tests/ImportingTests/` that loads both files via `MockLLMProvider`.
+5. If a prompt addendum was needed, document it in `llm-integration.md`.
+6. Update the **Tested issuers** table below.
 
-- Transactions found (before dedup)
-- Transactions imported (after dedup)
-- Duplicates skipped
-- Rows failed to parse
-- Warnings (e.g., "IOF line present but amount not captured")
-- Unrecognized statement sections
+## Diagnostics
 
-This surfaces in the Imports screen, so users and contributors know immediately when a parser is weak on a given layout.
+Every import populates `ImportBatch.parse_warnings: [String]` with notes such as:
+- "Glyph for line 12 ambiguous — purchase_method set to unknown."
+- "Per-card subtotal for card 2222 differs by R$ 0,02 from extracted sum."
+- "1 transaction had confidence < 0.7 — flagged for review."
 
-## Supported Parsers
+These appear in the Imports view alongside extraction metadata (model, tokens, cost, prompt version) so contributors can spot weak coverage at a glance.
 
-| Bank / Source | Format | Package | Status |
+## Tested issuers
+
+| Issuer | Product | Fixture | Status |
 |---|---|---|---|
-| Itaú credit card | PDF | Importing | Planned (Phase 1) |
-| CSV (generic, per-account mapping) | CSV | Importing | Planned (Phase 4) |
-| OFX (generic) | OFX | Importing | Planned (Phase 4) |
+| Itaú Personnalité | Mastercard Black | `itau-personnalite-2026-03-private.pdf` | Phase 1 reference |
 
-This table gets updated as parsers land.
+This list grows as fixtures land.
+
+## No manual fallback
+
+PocketLens is LLM-only by design. There is no manual-entry form and no "no LLM" mode — extraction depends on a configured provider (Anthropic in v0.1; OpenAI or Ollama in v0.5+). If the call fails, the import fails and the batch is marked accordingly; the user can retry, switch providers, or fix the underlying issue. See [`privacy.md`](privacy.md) for the disclosure model.
