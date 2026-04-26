@@ -418,4 +418,91 @@ final class AggregateQueriesTests: XCTestCase {
         )
         XCTAssertTrue(cards.isEmpty)
     }
+
+    // MARK: - Category cross-filter
+
+    func testCategoryFilter_ScopesAllRelevantQueries() async throws {
+        let f = try await makeFixture()
+        let q = AggregateQueries(store: f.store)
+
+        // Alimentação BRL totals (Boundary Start 1 + Padaria 25.50 + Restaurante 80
+        // − Padaria Estorno 30 = 76.50)
+        let totals = try await q.totalsByCurrency(
+            start: marchStart, endExclusive: aprilStart, categoryId: f.alimentacaoId
+        )
+        XCTAssertEqual(totals.count, 1)
+        XCTAssertEqual(totals.first?.currency, .BRL)
+        XCTAssertEqual(totals.first?.total.minorUnits, 7650)
+
+        let merchants = try await q.topMerchants(
+            start: marchStart, endExclusive: aprilStart,
+            currency: .BRL, limit: 10, categoryId: f.alimentacaoId
+        )
+        // Padaria Real, Restaurante, Padaria Estorno, Boundary Start —
+        // Posto Shell (Transporte) and IOF (uncategorized) excluded.
+        XCTAssertEqual(Set(merchants.map(\.merchantNormalized)),
+                       ["padaria real", "restaurante", "padaria estorno", "boundary start"])
+
+        let largest = try await q.largestTransactions(
+            start: marchStart, endExclusive: aprilStart,
+            currency: .BRL, limit: 5, categoryId: f.alimentacaoId
+        )
+        // Largest in Alimentação is Restaurante (80). Posto Shell (200) is
+        // Transporte and must not appear.
+        XCTAssertEqual(largest.first?.merchantNormalized, "restaurante")
+        XCTAssertFalse(largest.contains { $0.merchantNormalized == "posto shell" })
+
+        let cards = try await q.totalsByCard(
+            start: marchStart, endExclusive: aprilStart,
+            currency: .BRL, categoryId: f.alimentacaoId
+        )
+        // All Alimentação BRL spend is on card 1 — card 2 has only IOF and USD.
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertEqual(cards.first?.cardId, f.card1Id)
+        XCTAssertEqual(cards.first?.total.minorUnits, 7650)
+    }
+
+    // MARK: - Monthly trend
+
+    func testSpendingByMonth_ZeroFillsAndOrdersOldestFirst() async throws {
+        let f = try await makeFixture()
+        let q = AggregateQueries(store: f.store)
+
+        // Anchor `now` inside March 2026 so the trailing 6 months span
+        // 2025-10 ... 2026-03 inclusive. Only March has fixture rows.
+        let now = d("2026-03-15")
+        let trend = try await q.spendingByMonth(
+            months: 6, currency: .BRL, now: now
+        )
+
+        XCTAssertEqual(trend.count, 6, "must return exactly N months")
+        // Oldest first: 2025-10, 2025-11, 2025-12, 2026-01, 2026-02, 2026-03
+        XCTAssertEqual(trend[0].monthStart, d("2025-10-01"))
+        XCTAssertEqual(trend[5].monthStart, d("2026-03-01"))
+        // Oct/Nov/Dec/Jan have no fixture rows — must be zero-filled.
+        XCTAssertEqual(trend[0].total.minorUnits, 0)
+        XCTAssertEqual(trend[1].total.minorUnits, 0)
+        XCTAssertEqual(trend[2].total.minorUnits, 0)
+        XCTAssertEqual(trend[3].total.minorUnits, 0)
+        // Feb has the "Old Tx" purchase (999.00 BRL on 2026-02-28).
+        XCTAssertEqual(trend[4].total.minorUnits, 99900)
+        // March BRL = 281.50 (matches totalsByCurrency).
+        XCTAssertEqual(trend[5].total.minorUnits, 28150)
+    }
+
+    func testSpendingByMonth_RespectsCategoryFilter() async throws {
+        let f = try await makeFixture()
+        let q = AggregateQueries(store: f.store)
+
+        let now = d("2026-03-15")
+        let trend = try await q.spendingByMonth(
+            months: 3, currency: .BRL, now: now, categoryId: f.transporteId
+        )
+        XCTAssertEqual(trend.count, 3)
+        // Posto Shell 200 is the only Transporte BRL row in fixture; lands in March.
+        XCTAssertEqual(trend[2].monthStart, d("2026-03-01"))
+        XCTAssertEqual(trend[2].total.minorUnits, 20000)
+        XCTAssertEqual(trend[0].total.minorUnits, 0)
+        XCTAssertEqual(trend[1].total.minorUnits, 0)
+    }
 }

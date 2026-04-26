@@ -29,6 +29,17 @@ public struct AggregateQueries: Sendable {
     private static let bucketDateSQL =
         "COALESCE(b.statement_period_end, t.posted_date)"
 
+    /// Returns a SQL fragment + bind arguments for the optional category
+    /// cross-filter. When `categoryId` is nil the fragment is empty and no
+    /// arguments are added; the caller still concatenates `catSQL` into its
+    /// WHERE clause unconditionally.
+    private static func categoryFilter(
+        _ categoryId: Int64?
+    ) -> (sql: String, args: [(any DatabaseValueConvertible)?]) {
+        guard let categoryId else { return ("", []) }
+        return ("AND t.category_id = ?", [categoryId])
+    }
+
     // MARK: - DTOs
 
     public struct CurrencyTotal: Sendable, Hashable {
@@ -68,12 +79,26 @@ public struct AggregateQueries: Sendable {
         public let total: Money
     }
 
+    /// One month's spending bucket. `monthStart` is the first instant of the
+    /// month in UTC; `total` is in the requested currency.
+    public struct MonthTotal: Sendable, Hashable {
+        public let monthStart: Date
+        public let total: Money
+    }
+
     // MARK: - Queries
 
-    /// One row per currency seen in the period.
-    public func totalsByCurrency(start: Date, endExclusive: Date) async throws -> [CurrencyTotal] {
+    /// One row per currency seen in the period. When `categoryId` is non-nil,
+    /// totals are scoped to that category (used by the dashboard's category
+    /// cross-filter).
+    public func totalsByCurrency(
+        start: Date,
+        endExclusive: Date,
+        categoryId: Int64? = nil
+    ) async throws -> [CurrencyTotal] {
         let s = DateFmt.date.string(from: start)
         let e = DateFmt.date.string(from: endExclusive)
+        let (catSQL, catArgs) = Self.categoryFilter(categoryId)
         return try await dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT t.currency AS currency, SUM(t.amount) AS total_minor
@@ -81,9 +106,10 @@ public struct AggregateQueries: Sendable {
                 JOIN import_batches b ON b.id = t.import_batch_id
                 WHERE \(Self.bucketDateSQL) >= ? AND \(Self.bucketDateSQL) < ?
                   AND t.transaction_type IN \(Self.spendingTypesSQL)
+                  \(catSQL)
                 GROUP BY t.currency
                 ORDER BY t.currency
-                """, arguments: [s, e])
+                """, arguments: StatementArguments([s, e] + catArgs))
             return rows.compactMap { row -> CurrencyTotal? in
                 let code: String = row["currency"]
                 guard let cur = Currency(rawValue: code) else { return nil }
@@ -133,15 +159,17 @@ public struct AggregateQueries: Sendable {
 
     /// Top merchants by total spend in a single currency. Grouped by
     /// `merchant_normalized` so the result is stable even if the merchant
-    /// row was deleted.
+    /// row was deleted. `categoryId` scopes to one category when set.
     public func topMerchants(
         start: Date,
         endExclusive: Date,
         currency: Currency,
-        limit: Int
+        limit: Int,
+        categoryId: Int64? = nil
     ) async throws -> [MerchantTotal] {
         let s = DateFmt.date.string(from: start)
         let e = DateFmt.date.string(from: endExclusive)
+        let (catSQL, catArgs) = Self.categoryFilter(categoryId)
         return try await dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT t.merchant_normalized AS merchant_normalized,
@@ -152,10 +180,11 @@ public struct AggregateQueries: Sendable {
                 WHERE \(Self.bucketDateSQL) >= ? AND \(Self.bucketDateSQL) < ?
                   AND t.currency = ?
                   AND t.transaction_type IN \(Self.spendingTypesSQL)
+                  \(catSQL)
                 GROUP BY t.merchant_normalized
                 ORDER BY total_minor DESC
                 LIMIT ?
-                """, arguments: [s, e, currency.rawValue, limit])
+                """, arguments: StatementArguments([s, e, currency.rawValue] + catArgs + [limit]))
             return rows.map { row in
                 let minor: Int = row["total_minor"]
                 return MerchantTotal(
@@ -169,14 +198,17 @@ public struct AggregateQueries: Sendable {
 
     /// Top-N largest single transactions. Refunds (negative amounts) are
     /// excluded — "largest" here means biggest spend, not biggest absolute.
+    /// `categoryId` scopes to one category when set.
     public func largestTransactions(
         start: Date,
         endExclusive: Date,
         currency: Currency,
-        limit: Int
+        limit: Int,
+        categoryId: Int64? = nil
     ) async throws -> [LargestTransaction] {
         let s = DateFmt.date.string(from: start)
         let e = DateFmt.date.string(from: endExclusive)
+        let (catSQL, catArgs) = Self.categoryFilter(categoryId)
         return try await dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT t.id                  AS id,
@@ -191,9 +223,10 @@ public struct AggregateQueries: Sendable {
                   AND t.currency = ?
                   AND t.amount > 0
                   AND t.transaction_type IN ('purchase','fee','iof','adjustment')
+                  \(catSQL)
                 ORDER BY t.amount DESC
                 LIMIT ?
-                """, arguments: [s, e, currency.rawValue, limit])
+                """, arguments: StatementArguments([s, e, currency.rawValue] + catArgs + [limit]))
             return rows.compactMap { row -> LargestTransaction? in
                 let dateStr: String = row["posted_date"]
                 guard let date = DateFmt.date.date(from: dateStr) else { return nil }
@@ -251,13 +284,16 @@ public struct AggregateQueries: Sendable {
 
     /// Per-card spending totals in a single currency, highest-spending first.
     /// "Person" is deferred — Phase 3 ships card-only totals (see plan).
+    /// `categoryId` scopes to one category when set.
     public func totalsByCard(
         start: Date,
         endExclusive: Date,
-        currency: Currency
+        currency: Currency,
+        categoryId: Int64? = nil
     ) async throws -> [CardTotal] {
         let s = DateFmt.date.string(from: start)
         let e = DateFmt.date.string(from: endExclusive)
+        let (catSQL, catArgs) = Self.categoryFilter(categoryId)
         return try await dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT cd.id           AS card_id,
@@ -271,9 +307,10 @@ public struct AggregateQueries: Sendable {
                 WHERE \(Self.bucketDateSQL) >= ? AND \(Self.bucketDateSQL) < ?
                   AND t.currency = ?
                   AND t.transaction_type IN \(Self.spendingTypesSQL)
+                  \(catSQL)
                 GROUP BY cd.id
                 ORDER BY total_minor DESC
-                """, arguments: [s, e, currency.rawValue])
+                """, arguments: StatementArguments([s, e, currency.rawValue] + catArgs))
             return rows.map { row in
                 let minor: Int = row["total_minor"]
                 return CardTotal(
@@ -285,5 +322,67 @@ public struct AggregateQueries: Sendable {
                 )
             }
         }
+    }
+
+    /// Spending bucketed by month for the trailing `months` months ending at
+    /// the month containing `now` (inclusive). Always returns exactly `months`
+    /// entries, oldest first; months with no spending get a zero `MonthTotal`
+    /// so the time axis stays continuous in the UI. `categoryId` scopes to
+    /// one category when set.
+    public func spendingByMonth(
+        months: Int,
+        currency: Currency,
+        now: Date = Date(),
+        categoryId: Int64? = nil
+    ) async throws -> [MonthTotal] {
+        precondition(months > 0, "months must be positive")
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+
+        // [startInclusive, endExclusive) covers exactly `months` whole months
+        // ending at the month containing `now`.
+        let nowMonthStart = cal.dateInterval(of: .month, for: now)?.start ?? now
+        let endExclusive = cal.date(byAdding: .month, value: 1, to: nowMonthStart) ?? now
+        let startInclusive = cal.date(byAdding: .month, value: -(months - 1), to: nowMonthStart) ?? nowMonthStart
+
+        let s = DateFmt.date.string(from: startInclusive)
+        let e = DateFmt.date.string(from: endExclusive)
+        let (catSQL, catArgs) = Self.categoryFilter(categoryId)
+
+        // Pull raw monthly buckets (sparse — months with no rows are absent).
+        let totalsByMonthKey: [String: Int] = try await dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT substr(\(Self.bucketDateSQL), 1, 7) AS yyyymm,
+                       SUM(t.amount)                       AS total_minor
+                FROM transactions t
+                JOIN import_batches b ON b.id = t.import_batch_id
+                WHERE \(Self.bucketDateSQL) >= ? AND \(Self.bucketDateSQL) < ?
+                  AND t.currency = ?
+                  AND t.transaction_type IN \(Self.spendingTypesSQL)
+                  \(catSQL)
+                GROUP BY yyyymm
+                """, arguments: StatementArguments([s, e, currency.rawValue] + catArgs))
+            return Dictionary(uniqueKeysWithValues: rows.map { row in
+                (row["yyyymm"] as String, row["total_minor"] as Int)
+            })
+        }
+
+        // Walk the N months oldest-first, zero-filling absent buckets so the
+        // chart's x-axis is always continuous.
+        var result: [MonthTotal] = []
+        var cursor = startInclusive
+        let keyFmt = DateFormatter()
+        keyFmt.dateFormat = "yyyy-MM"
+        keyFmt.timeZone = TimeZone(identifier: "UTC")
+        for _ in 0..<months {
+            let key = keyFmt.string(from: cursor)
+            let minor = totalsByMonthKey[key] ?? 0
+            result.append(MonthTotal(
+                monthStart: cursor,
+                total: Money(minorUnits: minor, currency: currency)
+            ))
+            cursor = cal.date(byAdding: .month, value: 1, to: cursor) ?? cursor
+        }
+        return result
     }
 }

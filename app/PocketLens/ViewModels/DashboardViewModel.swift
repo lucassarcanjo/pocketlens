@@ -51,6 +51,15 @@ final class DashboardViewModel: ObservableObject {
         didSet { currencyRaw = selectedCurrency.rawValue }
     }
 
+    /// Cross-filter: when non-nil, every "filterable" card (totals / merchants
+    /// / largest / cards / trend) re-queries scoped to this category. Stays
+    /// in-memory only — not persisted, so a reload starts unfiltered.
+    @Published private(set) var selectedCategoryId: Int64?
+
+    /// Display name for the active filter. Set alongside `selectedCategoryId`
+    /// in `setCategoryFilter` so the pill doesn't have to look it up.
+    @Published private(set) var selectedCategoryName: String?
+
     // MARK: - Loaded snapshots
 
     @Published var totalsByCurrency: [AggregateQueries.CurrencyTotal] = []
@@ -58,11 +67,17 @@ final class DashboardViewModel: ObservableObject {
     @Published var topMerchants: [AggregateQueries.MerchantTotal] = []
     @Published var largestTransactions: [AggregateQueries.LargestTransaction] = []
     @Published var totalsByCard: [AggregateQueries.CardTotal] = []
+    @Published var monthlyTrend: [AggregateQueries.MonthTotal] = []
     @Published var uncategorizedCount: Int = 0
     @Published var needsReviewCount: Int = 0
 
     @Published var loadError: String?
     @Published var hasLoaded = false
+
+    /// Trailing window for the trend chart. Decoupled from the period picker
+    /// on purpose — the trend's job is to give a baseline against which the
+    /// selected period can be judged.
+    static let trendMonthCount = 6
 
     // MARK: - Init
 
@@ -116,30 +131,42 @@ final class DashboardViewModel: ObservableObject {
         }
         let q = AggregateQueries(store: store)
         let (start, end) = interval()
+        let cat = selectedCategoryId
         do {
-            async let totalsTask     = q.totalsByCurrency(start: start, endExclusive: end)
-            async let uncatTask      = q.uncategorizedCount(start: start, endExclusive: end)
-            async let needsTask      = q.needsReviewCount(start: start, endExclusive: end)
+            // Currency totals MUST stay unfiltered — the segmented currency
+            // picker needs to show every currency the period contains, even
+            // if the active category has no data in some of them.
+            async let unfilteredTotalsTask = q.totalsByCurrency(start: start, endExclusive: end)
+            async let uncatTask            = q.uncategorizedCount(start: start, endExclusive: end)
+            async let needsTask            = q.needsReviewCount(start: start, endExclusive: end)
 
-            let totals = try await totalsTask
-            self.totalsByCurrency = totals
+            let unfilteredTotals = try await unfilteredTotalsTask
+            self.totalsByCurrency = try await q.totalsByCurrency(
+                start: start, endExclusive: end, categoryId: cat
+            )
 
             // Default the selected currency to the largest-total currency in
-            // the period if the persisted choice has no data here.
-            if !totals.contains(where: { $0.currency == selectedCurrency }),
-               let top = totals.max(by: { $0.total.minorUnits < $1.total.minorUnits }) {
+            // the period if the persisted choice has no data here. Use the
+            // unfiltered totals so the fallback isn't biased by the active
+            // category filter.
+            if !unfilteredTotals.contains(where: { $0.currency == selectedCurrency }),
+               let top = unfilteredTotals.max(by: { $0.total.minorUnits < $1.total.minorUnits }) {
                 self.selectedCurrency = top.currency
             }
 
+            // Category breakdown stays unfiltered — it acts as the legend /
+            // selector for the cross-filter itself.
             async let categoriesTask = q.spendingByCategory(start: start, endExclusive: end, currency: selectedCurrency)
-            async let merchantsTask  = q.topMerchants(start: start, endExclusive: end, currency: selectedCurrency, limit: 8)
-            async let largestTask    = q.largestTransactions(start: start, endExclusive: end, currency: selectedCurrency, limit: 5)
-            async let cardsTask      = q.totalsByCard(start: start, endExclusive: end, currency: selectedCurrency)
+            async let merchantsTask  = q.topMerchants(start: start, endExclusive: end, currency: selectedCurrency, limit: 8, categoryId: cat)
+            async let largestTask    = q.largestTransactions(start: start, endExclusive: end, currency: selectedCurrency, limit: 5, categoryId: cat)
+            async let cardsTask      = q.totalsByCard(start: start, endExclusive: end, currency: selectedCurrency, categoryId: cat)
+            async let trendTask      = q.spendingByMonth(months: Self.trendMonthCount, currency: selectedCurrency, categoryId: cat)
 
             self.spendingByCategory  = try await categoriesTask
             self.topMerchants        = try await merchantsTask
             self.largestTransactions = try await largestTask
             self.totalsByCard        = try await cardsTask
+            self.monthlyTrend        = try await trendTask
             self.uncategorizedCount  = try await uncatTask
             self.needsReviewCount    = try await needsTask
             self.loadError = nil
@@ -149,12 +176,30 @@ final class DashboardViewModel: ObservableObject {
         self.hasLoaded = true
     }
 
+    /// Toggle the category cross-filter. Passing the already-selected category
+    /// clears it; passing `nil` always clears.
+    func setCategoryFilter(
+        _ categoryId: Int64?,
+        name: String?,
+        store: SQLiteStore?
+    ) async {
+        if categoryId == selectedCategoryId {
+            selectedCategoryId = nil
+            selectedCategoryName = nil
+        } else {
+            selectedCategoryId = categoryId
+            selectedCategoryName = name
+        }
+        await reload(store: store)
+    }
+
     private func resetSnapshots() {
         totalsByCurrency = []
         spendingByCategory = []
         topMerchants = []
         largestTransactions = []
         totalsByCard = []
+        monthlyTrend = []
         uncategorizedCount = 0
         needsReviewCount = 0
     }

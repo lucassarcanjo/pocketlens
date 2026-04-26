@@ -24,11 +24,18 @@ struct DashboardView: View {
                     onTapUncategorized: { navigateToReview(.uncategorized) },
                     onTapNeedsReview:   { navigateToReview(.needsReview) }
                 )
+                if vm.selectedCategoryId != nil {
+                    filterPill
+                }
+                MonthlyTrendChart(
+                    rows: vm.monthlyTrend,
+                    highlightMonthStart: vm.interval().start
+                )
                 totalsCard
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 20) {
                         VStack(spacing: 20) {
-                            SpendingByCategoryChart(rows: vm.spendingByCategory)
+                            categoryChart
                             LargestTransactionsList(rows: vm.largestTransactions)
                         }
                         VStack(spacing: 20) {
@@ -37,7 +44,7 @@ struct DashboardView: View {
                         }
                     }
                     VStack(spacing: 20) {
-                        SpendingByCategoryChart(rows: vm.spendingByCategory)
+                        categoryChart
                         TopMerchantsChart(rows: vm.topMerchants)
                         LargestTransactionsList(rows: vm.largestTransactions)
                         CreditCardTotalsCard(rows: vm.totalsByCard)
@@ -56,6 +63,42 @@ struct DashboardView: View {
         .onChange(of: app.store?.queue.path) { _, _ in
             Task { await vm.reload(store: app.store) }
         }
+    }
+
+    private var categoryChart: some View {
+        SpendingByCategoryChart(
+            rows: vm.spendingByCategory,
+            selectedCategoryId: vm.selectedCategoryId,
+            onSelect: { id, name in
+                Task { await vm.setCategoryFilter(id, name: name, store: app.store) }
+            }
+        )
+    }
+
+    private var filterPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                .foregroundStyle(.tint)
+            Text("Filtering by ")
+                .foregroundStyle(.secondary)
+            + Text(vm.selectedCategoryName ?? "category")
+                .fontWeight(.semibold)
+            Spacer()
+            Button {
+                Task { await vm.setCategoryFilter(nil, name: nil, store: app.store) }
+            } label: {
+                Label("Clear", systemImage: "xmark.circle.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.borderless)
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.12))
+        )
     }
 
     // MARK: - Sections
