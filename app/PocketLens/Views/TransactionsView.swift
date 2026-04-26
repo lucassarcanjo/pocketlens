@@ -45,7 +45,7 @@ struct TransactionsView: View {
             showFileImporter = true
         }
         .sheet(isPresented: importBinding) {
-            ImportProgressSheet(controller: importer) { Task { await vm.reload(store: app.store) } }
+            ImportProgressSheet(controller: importer) { Task { await vm.refresh(store: app.store) } }
         }
         .task { await vm.reload(store: app.store) }
     }
@@ -70,7 +70,7 @@ struct TransactionsView: View {
                 Text(err).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if vm.rows.isEmpty {
+        } else if vm.bounds == nil {
             EmptyImportPrompt(showFileImporter: $showFileImporter)
         } else {
             transactionsList
@@ -82,37 +82,106 @@ struct TransactionsView: View {
 
     private var transactionsList: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 16) {
                 disclosureBanner
-                ForEach(vm.grouped(), id: \.last4) { group in
-                    CardSection(
-                        last4: group.last4,
-                        rows: group.rows,
-                        categories: vm.categories,
-                        onCategoryPicked: { tx, catId in
-                            Task { await vm.updateCategory(
-                                transactionId: tx.id ?? 0,
-                                categoryId: catId,
-                                store: app.store
-                            ) }
-                        },
-                        onCreateRule: { tx in ruleEditorTransaction = tx },
-                        onAddAlias: { tx in aliasEditorTransaction = tx }
-                    )
+                monthHeader
+                if vm.rows.isEmpty {
+                    Text("No transactions in this month.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                } else {
+                    rowsList
+                    if vm.hasMore { viewMoreButton }
                 }
             }
             .padding(20)
         }
         .sheet(item: $ruleEditorTransaction) { tx in
             RuleEditorView(prefillFromTransaction: tx, categories: vm.categories) {
-                Task { await vm.reload(store: app.store) }
+                Task { await vm.refresh(store: app.store) }
             }
         }
         .sheet(item: $aliasEditorTransaction) { tx in
             MerchantAliasEditorView(prefillFromTransaction: tx) {
-                Task { await vm.reload(store: app.store) }
+                Task { await vm.refresh(store: app.store) }
             }
         }
+    }
+
+    private var monthHeader: some View {
+        HStack(spacing: 12) {
+            Button {
+                Task { await vm.goToPreviousMonth(store: app.store) }
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!vm.canGoPrev)
+
+            Text(monthLabel)
+                .font(.title2.weight(.semibold))
+                .frame(minWidth: 180, alignment: .leading)
+
+            Button {
+                Task { await vm.goToNextMonth(store: app.store) }
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!vm.canGoNext)
+
+            Spacer()
+
+            Text("\(vm.totalInMonth) transactions")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var rowsList: some View {
+        VStack(spacing: 0) {
+            ForEach(vm.rows) { row in
+                TransactionRowView(
+                    row: row,
+                    categories: vm.categories,
+                    onCategoryPicked: { catId in
+                        Task { await vm.updateCategory(
+                            transactionId: row.transaction.id ?? 0,
+                            categoryId: catId,
+                            store: app.store
+                        ) }
+                    },
+                    onCreateRule: { ruleEditorTransaction = row.transaction },
+                    onAddAlias: { aliasEditorTransaction = row.transaction }
+                )
+                Divider()
+            }
+        }
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var viewMoreButton: some View {
+        Button {
+            Task { await vm.loadMore(store: app.store) }
+        } label: {
+            if vm.isLoadingMore {
+                ProgressView().controlSize(.small)
+            } else {
+                Text("View more (\(vm.totalInMonth - vm.rows.count) remaining)")
+            }
+        }
+        .buttonStyle(.bordered)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .disabled(vm.isLoadingMore)
+    }
+
+    private var monthLabel: String {
+        let f = DateFormatter()
+        f.dateFormat = "MMMM yyyy"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f.string(from: vm.currentMonth.start)
     }
 
     private var disclosureBanner: some View {
@@ -180,44 +249,6 @@ private struct ImportDropOverlay: View {
     }
 }
 
-private struct CardSection: View {
-    let last4: String
-    let rows: [TransactionsViewModel.Row]
-    let categories: [Domain.Category]
-    let onCategoryPicked: (Domain.Transaction, Int64?) -> Void
-    let onCreateRule: (Domain.Transaction) -> Void
-    let onAddAlias: (Domain.Transaction) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "creditcard.fill")
-                Text("Card •••• \(last4)")
-                    .font(.headline)
-                Spacer()
-                Text("\(rows.count) transactions")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            VStack(spacing: 0) {
-                ForEach(rows) { row in
-                    TransactionRowView(
-                        row: row,
-                        categories: categories,
-                        onCategoryPicked: { catId in
-                            onCategoryPicked(row.transaction, catId)
-                        },
-                        onCreateRule: { onCreateRule(row.transaction) },
-                        onAddAlias: { onAddAlias(row.transaction) }
-                    )
-                    Divider()
-                }
-            }
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-}
-
 struct TransactionRowView: View {
     let row: TransactionsViewModel.Row
     let categories: [Domain.Category]
@@ -242,6 +273,7 @@ struct TransactionRowView: View {
                 }
                 HStack(spacing: 6) {
                     Text(row.transaction.postedDate.formatted(date: .numeric, time: .omitted))
+                    Text("· •••• \(row.cardLast4)")
                     if let city = row.transaction.merchantCity {
                         Text("· \(city)")
                     }

@@ -29,11 +29,18 @@ struct ReviewView: View {
     }
 
     @EnvironmentObject private var app: AppState
-    @StateObject private var vm = TransactionsViewModel()
+    @StateObject private var vm = ReviewViewModel()
 
-    @State private var filter: Filter = .all
+    @State private var filter: Filter
     @State private var ruleEditorTransaction: Domain.Transaction?
     @State private var aliasEditorTransaction: Domain.Transaction?
+
+    /// `initialFilter` lets callers (e.g. the dashboard's attention cards)
+    /// open this view pre-filtered. The parent must vary `.id(...)` to force
+    /// re-init when the filter argument changes.
+    init(initialFilter: Filter = .all) {
+        _filter = State(initialValue: initialFilter)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

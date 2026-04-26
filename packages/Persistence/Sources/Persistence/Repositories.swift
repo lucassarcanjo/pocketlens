@@ -216,6 +216,55 @@ public struct TransactionRepository: Sendable {
         }
     }
 
+    /// Page of transactions whose `posted_date` falls in `[start, endExclusive)`,
+    /// ordered newest first. `id DESC` tie-breaks within a single date so OFFSET
+    /// pagination is stable across pages.
+    public func inMonth(
+        start: Date,
+        endExclusive: Date,
+        limit: Int,
+        offset: Int
+    ) async throws -> [Transaction] {
+        let s = DateFmt.date.string(from: start)
+        let e = DateFmt.date.string(from: endExclusive)
+        return try await dbQueue.read { db in
+            try TransactionRecord
+                .filter(Column("posted_date") >= s && Column("posted_date") < e)
+                .order(Column("posted_date").desc, Column("id").desc)
+                .limit(limit, offset: offset)
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
+
+    public func countInMonth(start: Date, endExclusive: Date) async throws -> Int {
+        let s = DateFmt.date.string(from: start)
+        let e = DateFmt.date.string(from: endExclusive)
+        return try await dbQueue.read { db in
+            try TransactionRecord
+                .filter(Column("posted_date") >= s && Column("posted_date") < e)
+                .fetchCount(db)
+        }
+    }
+
+    /// Earliest and latest `posted_date` across all transactions, used by the
+    /// transactions view to bound month navigation. `nil` when the table is empty.
+    public func postedDateBounds() async throws -> (min: Date, max: Date)? {
+        try await dbQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT MIN(posted_date) AS min_d, MAX(posted_date) AS max_d FROM transactions"
+            ) else { return nil }
+            let minS: String? = row["min_d"]
+            let maxS: String? = row["max_d"]
+            guard let minS, let maxS,
+                  let minD = DateFmt.date.date(from: minS),
+                  let maxD = DateFmt.date.date(from: maxS)
+            else { return nil }
+            return (minD, maxD)
+        }
+    }
+
     public func forBatch(_ importBatchId: Int64) async throws -> [Transaction] {
         try await dbQueue.read { db in
             try TransactionRecord

@@ -161,6 +161,92 @@ final class RepositoriesTests: XCTestCase {
         }
     }
 
+    // MARK: - Monthly pagination
+
+    func testInMonth_PagesAndBoundsHonorPostedDate() async throws {
+        let store = try makeStore()
+        let acctRepo = AccountRepository(store: store)
+        let cardRepo = CardRepository(store: store)
+        let batchRepo = ImportBatchRepository(store: store)
+        let txRepo = TransactionRepository(store: store)
+
+        let acct = try await acctRepo.findOrCreate(bankName: "Itaú", holderName: "L")
+        let card = try await cardRepo.upsert(Card(last4: "0001", holderName: "L"), accountId: acct.id!)
+        let batch = try await batchRepo.insert(ImportBatch(
+            sourceFileName: "x.pdf",
+            sourceFileSha256: "month-pagination",
+            sourcePages: 1,
+            statementTotal: Money(major: 0, currency: .BRL),
+            llmProvider: .mock,
+            llmModel: "m",
+            llmPromptVersion: "v1",
+            llmInputTokens: 0, llmOutputTokens: 0, llmCostUSD: 0,
+            validationStatus: .ok
+        ))
+
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let aprilStart = cal.date(from: DateComponents(year: 2026, month: 4, day: 1))!
+        let mayStart   = cal.date(from: DateComponents(year: 2026, month: 5, day: 1))!
+        let juneStart  = cal.date(from: DateComponents(year: 2026, month: 6, day: 1))!
+
+        // 5 in April, 3 in May. Insert in mixed order to verify ordering.
+        let dates: [Date] = [
+            cal.date(byAdding: .day, value: 14, to: aprilStart)!, // Apr 15
+            cal.date(byAdding: .day, value: 1,  to: mayStart)!,   // May 2
+            cal.date(byAdding: .day, value: 0,  to: aprilStart)!, // Apr 1
+            cal.date(byAdding: .day, value: 29, to: aprilStart)!, // Apr 30
+            cal.date(byAdding: .day, value: 4,  to: mayStart)!,   // May 5
+            cal.date(byAdding: .day, value: 9,  to: aprilStart)!, // Apr 10
+            cal.date(byAdding: .day, value: 19, to: aprilStart)!, // Apr 20
+            cal.date(byAdding: .day, value: 9,  to: mayStart)!    // May 10
+        ]
+        for (i, d) in dates.enumerated() {
+            let tx = Transaction(
+                postedDate: d,
+                rawDescription: "TX-\(i)",
+                merchantNormalized: "tx-\(i)",
+                amount: Money(major: Decimal(i + 1), currency: .BRL)
+            )
+            _ = try await txRepo.insert(
+                tx, fingerprint: "fp-\(i)",
+                importBatchId: batch.id!, cardId: card.id!, merchantId: nil
+            )
+        }
+
+        // Bounds span April → May.
+        let bounds = try await txRepo.postedDateBounds()
+        XCTAssertEqual(bounds?.min, aprilStart)
+        XCTAssertEqual(bounds?.max, cal.date(byAdding: .day, value: 9, to: mayStart)!)
+
+        // April count + paging.
+        let aprilCount = try await txRepo.countInMonth(start: aprilStart, endExclusive: mayStart)
+        XCTAssertEqual(aprilCount, 5)
+
+        let aprilPage1 = try await txRepo.inMonth(start: aprilStart, endExclusive: mayStart, limit: 3, offset: 0)
+        let aprilPage2 = try await txRepo.inMonth(start: aprilStart, endExclusive: mayStart, limit: 3, offset: 3)
+        XCTAssertEqual(aprilPage1.count, 3)
+        XCTAssertEqual(aprilPage2.count, 2)
+
+        // Newest-first ordering: page 1 starts at Apr 30.
+        XCTAssertEqual(aprilPage1.first?.postedDate, cal.date(byAdding: .day, value: 29, to: aprilStart))
+        // Pages don't overlap.
+        let page1Ids = Set(aprilPage1.compactMap(\.id))
+        let page2Ids = Set(aprilPage2.compactMap(\.id))
+        XCTAssertTrue(page1Ids.isDisjoint(with: page2Ids))
+
+        // May filter excludes April rows.
+        let mayCount = try await txRepo.countInMonth(start: mayStart, endExclusive: juneStart)
+        XCTAssertEqual(mayCount, 3)
+    }
+
+    func testPostedDateBounds_EmptyTable() async throws {
+        let store = try makeStore()
+        let txRepo = TransactionRepository(store: store)
+        let bounds = try await txRepo.postedDateBounds()
+        XCTAssertNil(bounds)
+    }
+
     func testImportBatchSha256IsUnique() async throws {
         let store = try makeStore()
         let batchRepo = ImportBatchRepository(store: store)
