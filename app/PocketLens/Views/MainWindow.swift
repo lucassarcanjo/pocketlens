@@ -37,7 +37,13 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
 }
 
 struct MainWindow: View {
-    @State private var selection: SidebarSection? = .transactions
+    @State private var selection: SidebarSection? = .dashboard
+
+    /// Pre-set when navigating from the dashboard's attention cards.
+    @State private var reviewInitialFilter: ReviewView.Filter = .all
+    /// Bumped on each cross-screen jump so `ReviewView` re-inits its `@State`
+    /// `filter` from the new `initialFilter`.
+    @State private var reviewSessionId = UUID()
 
     var body: some View {
         NavigationSplitView {
@@ -48,30 +54,22 @@ struct MainWindow: View {
             .listStyle(.sidebar)
             .navigationTitle("PocketLens")
         } detail: {
-            switch selection ?? .transactions {
+            switch selection ?? .dashboard {
             case .transactions: TransactionsView()
-            case .review:       ReviewView()
+            case .review:
+                ReviewView(initialFilter: reviewInitialFilter)
+                    .id(reviewSessionId)
             case .imports:      ImportsView()
             case .categories:   CategoriesView()
             case .rules:        RulesListView()
-            case .dashboard:    DashboardPlaceholderView()
+            case .dashboard:
+                DashboardView(navigateToReview: { filter in
+                    reviewInitialFilter = filter
+                    reviewSessionId = UUID()
+                    selection = .review
+                })
             case .settings:     SettingsView()
             }
         }
-    }
-}
-
-struct DashboardPlaceholderView: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "chart.bar.xaxis")
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
-            Text("Dashboard")
-                .font(.title2.weight(.semibold))
-            Text("Charts and rollups land in v0.3.")
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -9,8 +9,8 @@ This folder is the durable memory between Claude sessions. Every session starts 
 | 0 | Bootstrap | — | ✅ done | [01-phase-0-bootstrap.md](01-phase-0-bootstrap.md) |
 | 1 | LLM-Powered Statement Import | v0.1 | ✅ done | [02-phase-1-mvp.md](02-phase-1-mvp.md) |
 | 2 | Local Memory & Rules | v0.2 | ✅ done | [03-phase-2-memory.md](03-phase-2-memory.md) |
-| 3 | Dashboard | v0.3 | ⏭ ready to start | [04-phase-3-dashboard.md](04-phase-3-dashboard.md) |
-| 4 | Bank Statement Import | v0.4 | ⏸ blocked by Phase 3 | [05-phase-4-bank.md](05-phase-4-bank.md) |
+| 3 | Dashboard | v0.3 | ✅ done | [04-phase-3-dashboard.md](04-phase-3-dashboard.md) |
+| 4 | Bank Statement Import | v0.4 | ⏭ ready to start | [05-phase-4-bank.md](05-phase-4-bank.md) |
 | 5 | LLM Expansion (Ollama, OpenAI, assist features) | v0.5 | ⏸ blocked by Phase 4 | [06-phase-5-llm.md](06-phase-5-llm.md) |
 | 6 | Automation | v0.6 | ⏸ blocked by Phase 5 | [07-phase-6-automation.md](07-phase-6-automation.md) |
 

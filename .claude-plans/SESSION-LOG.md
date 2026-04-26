@@ -182,3 +182,57 @@ Append-only log of Claude sessions. Most recent at the bottom.
 **Open items / next action:**
 - Phase 2 implementation is currently uncommitted on `main` — see `git status` (Domain + Persistence + Categorization + app/Views diffs plus the modified `docs/data-model.md`). Take the Phase 2 commit before starting Phase 3.
 - Phase 3 (Dashboard, v0.3) is ready — see `.claude-plans/04-phase-3-dashboard.md` for the pinned next action.
+
+---
+
+## 2026-04-26 — Phase 3 implementation: dashboard backend + UI
+
+**Active phase:** 3 — Dashboard
+**Goal this session:** Land the entire Phase 3 stack — aggregate SQL queries in Persistence → DashboardViewModel → SwiftUI dashboard with charts → wire as default landing tab — and get `make test` green end-to-end.
+
+**Shipped (137 tests passing — 136 SPM + 1 app smoke):**
+- **Persistence — `AggregateQueries` (9 new tests).** Single struct with raw-SQL methods, all `GROUP BY` happens in SQLite. Half-open date semantics (`posted_date >= start AND posted_date < endExclusive`) — documented at the API. "Spending" excludes `payment` and includes `purchase`/`refund`/`fee`/`iof`/`adjustment`; refunds (negative amounts) offset purchases inside `SUM`. `largestTransactions` additionally requires `amount > 0` so refunds don't show as "largest". Methods: `totalsByCurrency`, `spendingByCategory` (LEFT JOIN to categories — uncategorized rows collapse to a single bucket), `topMerchants` (GROUP BY `merchant_normalized` for stability), `largestTransactions` (JOIN cards), `uncategorizedCount`, `needsReviewCount` (default band 0.50–0.80, matches Phase 2's `ReviewView`), `totalsByCard`. Tests cover month boundaries (start inclusive / end exclusive verified with rows at exactly 2026-03-01 and 2026-04-01), mixed currency, refund offsets, payment exclusion, and empty periods.
+- **`DashboardViewModel`.** `@MainActor ObservableObject` mirroring `TransactionsViewModel` style. Owns `DashboardDateRangePreset` (`thisMonth` / `lastMonth` / `last3Months` / `custom`) + custom date pair + `selectedCurrency`, all persisted via `@AppStorage`. `interval(now:)` builds boundaries in UTC so they line up with the UTC-formatted `posted_date` strings on disk. `reload(store:)` issues queries in parallel via `async let`, auto-selects the highest-spending currency on first load when the persisted choice has no data in the period.
+- **Dashboard SwiftUI views (`Views/Dashboard/`).** `DashboardView` composes everything in a `ScrollView` with `ViewThatFits` for two-column-on-wide / stacked-on-narrow responsive layout. Sub-views in their own files: `DateRangePicker` (segmented + DatePickers when custom), `SpendingByCategoryChart` (Swift Charts `SectorMark` pie + ranked legend, `ViewThatFits` again for tight panes), `TopMerchantsChart` (horizontal `BarMark` with trailing-annotation totals), `LargestTransactionsList`, `NeedsAttentionCards` (two click-through tiles), `CreditCardTotalsCard`. `DashboardCard` + `EmptyDashboardSection` are shared chrome. `DashboardFormatters` centralizes currency formatting (pt-BR for BRL, en-US for USD, de-DE for EUR, en-GB for GBP — exhaustive Currency switch caught by the compiler on first build) and the hex-to-`Color` helper.
+- **MainWindow wiring.** Default sidebar selection flipped from `.transactions` to `.dashboard`. `DashboardPlaceholderView` deleted (no longer needed). `MainWindow` now holds `reviewInitialFilter` + `reviewSessionId` (UUID); the dashboard's attention cards call back into it to set the filter, bump the session id, and flip the selection. `ReviewView.id(reviewSessionId)` forces SwiftUI to re-init the view's `@State filter` from the new `initialFilter` arg on each navigation event.
+- **`ReviewView` API change.** Added `init(initialFilter: Filter = .all)`. Backwards-compatible default — existing call sites elsewhere keep working.
+
+**Decisions made:**
+- **"Spending" definition is shared between aggregate queries.** `('purchase','refund','fee','iof','adjustment')` — payments are explicitly excluded across all dashboard queries so the user-pays-card transaction never inflates totals or shows up as "uncategorized". Refunds stay in the SUM so the period total reflects net spend; `largestTransactions` adds an `amount > 0` filter so refunds don't visually dominate.
+- **Half-open date intervals.** API takes `start: Date, endExclusive: Date` instead of `DateInterval` to dodge Apple's inclusive-end ambiguity. `DashboardViewModel.interval()` builds month boundaries via `Calendar` configured with UTC so they round-trip cleanly with the UTC `posted_date` strings on disk. Custom-range end-date is bumped forward by one day in the view model so the user-picked end date is *included* in the result set.
+- **Per-card-only on the credit-card card.** Plan's Open Question (Person-level grouping) is deferred — semantics undefined. Card-only ships in v0.3; the deferral is captured in the Phase 3 Backlog section of the plan file.
+- **Currency switcher only renders when ≥2 currencies are present in the period.** Avoids visual noise for the common BRL-only case. The breakdowns (categories / merchants / cards / largest) are scoped to one currency; the totals card lists every currency on its own line.
+- **Snapshot tests skipped.** Plan called them out as optional ("if we use swift-snapshot-testing"). Swift Charts output is hard to snapshot reliably and the underlying data is already covered by `AggregateQueriesTests`. Captured in Phase 3 Backlog.
+- **Categorization-reason inference still lives in the row badge** — Phase 3 didn't introduce a `categorization_reason_key` column. Phase 2 backlog item still applies.
+- **Dashboard reload trigger** — `.task` on first appear plus `.onChange(of: app.store?.queue.path)` to reload after a DB reset. Not auto-reloaded after an import; user can trigger it by switching tabs. Acceptable for v0.3 (imports are infrequent and explicit).
+
+**Verification done this session:**
+- `swift test` passes for each of `Domain` (25), `Persistence` (34, +9 new aggregate tests), `Importing` (21), `Categorization` (29), `LLM` (27).
+- `make gen` regenerates the Xcode project cleanly with the new `Views/Dashboard/` folder auto-included (no `project.yml` edit needed — the existing `path: PocketLens` rule recurses).
+- `make test` end-to-end: 136 SPM + 1 app smoke = 137 tests, 0 failures.
+
+**NOT verified this session (explicitly):**
+- The dashboard has not been exercised against a real PDF + real data on the user's machine. Visual layout (responsive columns, pie chart, horizontal bar chart, click-through navigation, custom date range picker) is glue that needs a manual smoke test next session.
+- Auto-refresh after import is not wired — a successful import doesn't poke the dashboard. User must switch tabs or change the date range to re-query. Captured in the implicit follow-up.
+
+**Open items / next action:**
+- Manual smoke test the dashboard on the user's machine. Verify: Dashboard is the default landing tab; date-range presets re-issue queries; pie + ranked bars match seeded categories; "Uncategorized" / "Needs review" counts navigate to `ReviewView` with the correct filter pre-selected; per-card totals reflect the multi-card statement; mixed-currency view (if applicable) shows the currency switcher.
+- After smoke test passes, mark Phase 3 ✅ in `00-OVERVIEW.md` and unblock Phase 4.
+
+---
+
+## 2026-04-26 — Phase 3 closeout: smoke test passed, Phase 4 unblocked
+
+**Active phase:** 3 → 4 transition
+**Goal this session:** Close out Phase 3 after the manual smoke test and flip Phase 4 to ⏭ ready.
+
+**Shipped:**
+- Manual smoke test of the Phase 3 dashboard passed end-to-end on the user's machine. Dashboard lands as the default tab, date-range presets re-issue queries, pie + ranked bars match seeded categories, attention cards navigate to `ReviewView` with the right filter pre-selected, per-card totals reflect the multi-card statement.
+- `00-OVERVIEW.md` status board: Phase 3 → ✅ done, Phase 4 → ⏭ ready to start.
+- `04-phase-3-dashboard.md` Next Action replaced with a closeout pointer to Phase 4.
+
+**Decisions made (intentional, post-implementation edit landed in `AggregateQueries.swift`):**
+- **Bucketing switched from `posted_date` to `COALESCE(b.statement_period_end, t.posted_date)`.** All dashboard aggregations now bucket transactions by the close date of the statement they appeared on, falling back to `posted_date` when statement metadata is missing. This makes installments land in the month they're being charged, not the original purchase month — the natural mental model for credit-card spending. Required adding a `JOIN import_batches b ON b.id = t.import_batch_id` to every aggregation query.
+
+**Open items / next action:**
+- Phase 4 (Bank Statement Import, v0.4) is ready to start — see `.claude-plans/05-phase-4-bank.md` for its pinned next action.
