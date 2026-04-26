@@ -26,7 +26,7 @@ Make the repo buildable and install the durable cross-session planning + documen
 - [x] Verify: `make gen && make build && make test-app` succeeds end-to-end.
 
 ## Files Touched
-See the plan at `(internal plan)` for the full file list. Nothing in `packages/` or `app/` contains real product logic yet.
+Nothing in `packages/` or `app/` contains real product logic yet.
 
 ## Dependencies
 None — this is the first phase.
