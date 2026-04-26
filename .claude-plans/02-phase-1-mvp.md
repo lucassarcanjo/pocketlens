@@ -8,22 +8,22 @@ The "Anthropic does the extraction" fact is disclosed twice, low-friction: once 
 
 ## Definition of Done
 
-- [ ] User opens app and sees a sidebar window: Transactions / Imports / Categories / Dashboard (placeholder) / Settings.
-- [ ] First-launch onboarding screen: one-liner disclosure ("PocketLens uses Anthropic Claude to read your statement PDFs. Your data is sent to Anthropic but not used for training. Full card numbers, CPF, and addresses are redacted before upload."), a "Learn more" link to `docs/privacy.md`, and the Anthropic API key paste field. The app refuses to import until a key is set.
-- [ ] User imports a PDF via drag-and-drop or `File → Import…`. The drop zone shows an inline disclosure: "By uploading, you agree to send the redacted text to Anthropic Claude (not used for training)."
-- [ ] Extraction runs with progress UI: `extracting text → calling Claude → validating → saving`.
-- [ ] Transactions appear in a sortable `Table`, **grouped by card** (one section per `Card`).
-- [ ] Each row shows: date, merchant (raw + normalized), amount + currency, card last-4, holder, installment N/M (if any), bank-category-raw, app-category (editable), purchase method icon (virtual / digital_wallet / physical), confidence.
-- [ ] User can change a transaction's app-category from a fixed seed list (full CRUD deferred to Phase 2).
-- [ ] Re-importing the same PDF (same SHA-256) is rejected with a clear "already imported as batch #N on YYYY-MM-DD" message.
-- [ ] Re-importing an overlapping statement deduplicates at the transaction level via fingerprint.
-- [ ] Validation: per-card extracted sums must match the per-card totals printed on the PDF (e.g., "Lançamentos no cartão (final 1111) 7.473,18") within ±R$0.01. Grand total must match "Total dos lançamentos atuais". Mismatch → import marked `needs_review` and warning surfaced.
-- [ ] Forecast section ("Compras parceladas - próximas faturas") is correctly **excluded**.
-- [ ] Imports view lists every `ImportBatch` with: file name, statement period, total, transaction count, LLM model + tokens + cost, validation status.
-- [ ] All data persists to `~/Library/Application Support/PocketLens/pocketlens.db` (GRDB).
-- [ ] Settings → LLM: manage Anthropic key (rotate / delete); pick model. No "privacy mode" toggle — the app is LLM-only by design.
-- [ ] Default categories from spec §19 seeded on first run.
-- [ ] `make test` passes — including a Mock-LLM-driven extraction test against the reference fixture.
+- [x] User opens app and sees a sidebar window: Transactions / Imports / Categories / Dashboard (placeholder) / Settings.
+- [x] First-launch onboarding screen: one-liner disclosure ("PocketLens uses Anthropic Claude to read your statement PDFs. Your data is sent to Anthropic but not used for training. Full card numbers, CPF, and addresses are redacted before upload."), a "Learn more" link to `docs/privacy.md`, and the Anthropic API key paste field. The app refuses to import until a key is set.
+- [x] User imports a PDF via drag-and-drop or `File → Import…`. The drop zone shows an inline disclosure: "By uploading, you agree to send the redacted text to Anthropic Claude (not used for training)."
+- [x] Extraction runs with progress UI: `extracting text → calling Claude → validating → saving`.
+- [x] Transactions appear in a sortable `Table`, **grouped by card** (one section per `Card`).
+- [x] Each row shows: date, merchant (raw + normalized), amount + currency, card last-4, holder, installment N/M (if any), bank-category-raw, app-category (editable), purchase method icon (virtual / digital_wallet / physical), confidence.
+- [x] User can change a transaction's app-category from a fixed seed list (full CRUD deferred to Phase 2).
+- [x] Re-importing the same PDF (same SHA-256) is rejected with a clear "already imported as batch #N on YYYY-MM-DD" message.
+- [x] Re-importing an overlapping statement deduplicates at the transaction level via fingerprint.
+- [x] Validation: per-card extracted sums must match the per-card totals printed on the PDF (e.g., "Lançamentos no cartão (final 1111) 7.473,18") within ±R$0.01. Grand total must match "Total dos lançamentos atuais". Mismatch → import marked `needs_review` and warning surfaced.
+- [x] Forecast section ("Compras parceladas - próximas faturas") is correctly **excluded**.
+- [x] Imports view lists every `ImportBatch` with: file name, statement period, total, transaction count, LLM model + tokens + cost, validation status.
+- [x] All data persists to `~/Library/Application Support/PocketLens/pocketlens.db` (GRDB).
+- [x] Settings → LLM: manage Anthropic key (rotate / delete); pick model. No "privacy mode" toggle — the app is LLM-only by design.
+- [x] Default categories from spec §19 seeded on first run.
+- [x] `make test` passes — including a Mock-LLM-driven extraction test against the reference fixture.
 
 ## Architecture: New Import Flow
 
@@ -66,16 +66,16 @@ What the fixture exercises (this is the spec for the extraction prompt):
 
 ### Domain package
 
-- [ ] `Money` value type — Decimal-backed, `currency: Currency`, equality, hashable, locale-safe formatter, arithmetic that preserves currency.
-- [ ] `Currency` enum: `BRL | USD | EUR | GBP` (extensible).
-- [ ] `TransactionType` enum: `purchase | refund | payment | fee | iof | adjustment`.
-- [ ] `PurchaseMethod` enum: `physical | virtualCard | digitalWallet | recurring | unknown`.
-- [ ] `Installment` value type: `current: Int, total: Int`.
-- [ ] `Account` — `id, bankName, accountAlias, holderName, createdAt`.
-- [ ] `Card` — `id, accountId, last4, holderName, network, tier?, nickname?`.
-- [ ] `Merchant` — `id, raw, normalized, defaultCategoryId?` (alias table comes Phase 2).
-- [ ] `Category` — `id, parentId?, name, color?, icon?`.
-- [ ] `Transaction`:
+- [x] `Money` value type — Decimal-backed, `currency: Currency`, equality, hashable, locale-safe formatter, arithmetic that preserves currency.
+- [x] `Currency` enum: `BRL | USD | EUR | GBP` (extensible).
+- [x] `TransactionType` enum: `purchase | refund | payment | fee | iof | adjustment`.
+- [x] `PurchaseMethod` enum: `physical | virtualCard | digitalWallet | recurring | unknown`.
+- [x] `Installment` value type: `current: Int, total: Int`.
+- [x] `Account` — `id, bankName, accountAlias, holderName, createdAt`.
+- [x] `Card` — `id, accountId, last4, holderName, network, tier?, nickname?`.
+- [x] `Merchant` — `id, raw, normalized, defaultCategoryId?` (alias table comes Phase 2).
+- [x] `Category` — `id, parentId?, name, color?, icon?`.
+- [x] `Transaction`:
   - `id, importBatchId, cardId, postedDate, postedYearInferred: Bool`
   - `merchantId, rawDescription, merchantNormalized, merchantCity?, bankCategoryRaw?`
   - `amount: Money` (always BRL on storage), `originalAmount: Money?, fxRate: Decimal?`
@@ -84,18 +84,18 @@ What the fixture exercises (this is the spec for the extraction prompt):
   - `categoryId?, confidence: Double, categorizationReason: String` (Phase 2 fills this — empty in Phase 1)
   - `fingerprint: String` (computed)
   - `createdAt, updatedAt`
-- [ ] `ImportBatch`:
+- [x] `ImportBatch`:
   - `id, sourceFileName, sourceFileSha256, sourcePages`
   - `statementPeriodStart, statementPeriodEnd, statementCloseDate, statementDueDate`
   - `statementTotal, previousBalance?, paymentReceived?, revolvingBalance?`
   - `llmProvider, llmModel, llmInputTokens, llmOutputTokens, llmCostUSD`
   - `validationStatus: enum { ok, warning, failed }`, `parseWarnings: [String]`
   - `importedAt`
-- [ ] `ExtractedStatement` DTO (Codable) — pure shape returned by the LLM tool call. Lives in `LLM` package, not `Domain`, because it is provider-bound.
+- [x] `ExtractedStatement` DTO (Codable) — pure shape returned by the LLM tool call. Lives in `LLM` package, not `Domain`, because it is provider-bound.
 
 ### LLM package (pulled forward from Phase 5)
 
-- [ ] `LLMProvider` protocol:
+- [x] `LLMProvider` protocol:
   ```swift
   protocol LLMProvider {
       var name: String { get }
@@ -106,67 +106,67 @@ What the fixture exercises (this is the spec for the extraction prompt):
   ```
   - `ExtractionHints` carries known-issuer fingerprints and the user's BRL locale.
   - `ExtractionResult` wraps the `ExtractedStatement` plus token usage + cost.
-- [ ] `MockLLMProvider` — deterministic; loads canned `ExtractedStatement` JSON from a test bundle. Backs all parser tests.
-- [ ] `AnthropicProvider`:
+- [x] `MockLLMProvider` — deterministic; loads canned `ExtractedStatement` JSON from a test bundle. Backs all parser tests.
+- [x] `AnthropicProvider`:
   - URLSession HTTP client, no third-party SDK (small surface).
   - Default model: `claude-sonnet-4-6`. Settings allows `claude-opus-4-7`.
   - **Prompt caching**: cache the system prompt + tool schema (`cache_control: {type: "ephemeral"}` on the system block). Variable per-call: redacted statement text.
   - **Tool-use** (strict): single tool `record_extracted_statement` whose JSON schema mirrors `ExtractedStatement`. `tool_choice: {type: "tool", name: "record_extracted_statement"}` forces structured output.
   - Streaming: NO for v0.1 (small structured payload, simpler).
   - Cost tracking: parse `usage` from response; convert to USD via a small static price table keyed by model.
-- [ ] `KeychainStore` — read/write `pocketlens.anthropic_api_key`.
-- [ ] `Redactor`:
+- [x] `KeychainStore` — read/write `pocketlens.anthropic_api_key`.
+- [x] `Redactor`:
   - Mask full card number → keep `XXXX.XXXX.XXXX.NNNN` last 4.
   - Strip CPF (`\d{3}\.\d{3}\.\d{3}-\d{2}`) and CNPJ.
   - Replace street address line with `[ADDRESS]`; keep city + state.
   - Pluggable rule list so a contributor can add patterns without surgery.
-- [ ] **Prompt** — `ExtractionPromptV1.swift`. Versioned constant. Contains:
+- [x] **Prompt** — `ExtractionPromptV1.swift`. Versioned constant. Contains:
   - System message: role, output discipline, year-inference rules, sections to ignore (forecast, summary boxes, installment-simulation tables), how to encode multi-card grouping, rules for international transactions and IOF, glyph hints (`@`, digital wallet).
   - Tool schema: every field of `ExtractedStatement`.
   - One redacted few-shot example (1 card, 3 transactions including 1 installment) so the model anchors on shape.
-- [ ] `PromptVersion` constant stamped onto every `ImportBatch` (so we can detect drift later).
+- [x] `PromptVersion` constant stamped onto every `ImportBatch` (so we can detect drift later).
 
 ### Persistence package
 
-- [ ] **Library: GRDB.swift v6.x** (decision locked). Add to `packages/Persistence/Package.swift` deps.
-- [ ] `SQLiteStore` — opens/creates DB at `~/Library/Application Support/PocketLens/pocketlens.db`. Enables `PRAGMA foreign_keys = ON` and `journal_mode = WAL`.
-- [ ] `Migrations` registry — Schema v1 covers Phase 1 entities (see `docs/data-model.md`).
-- [ ] Repositories: `AccountRepository, CardRepository, MerchantRepository, CategoryRepository, ImportBatchRepository, TransactionRepository`. Each exposes async CRUD.
-- [ ] `DefaultDataSeeder`:
+- [x] **Library: GRDB.swift v6.x** (decision locked). Add to `packages/Persistence/Package.swift` deps.
+- [x] `SQLiteStore` — opens/creates DB at `~/Library/Application Support/PocketLens/pocketlens.db`. Enables `PRAGMA foreign_keys = ON` and `journal_mode = WAL`.
+- [x] `Migrations` registry — Schema v1 covers Phase 1 entities (see `docs/data-model.md`).
+- [x] Repositories: `AccountRepository, CardRepository, MerchantRepository, CategoryRepository, ImportBatchRepository, TransactionRepository`. Each exposes async CRUD.
+- [x] `DefaultDataSeeder`:
   - Seed categories per spec §19 on first run.
   - Seed Itaú as the first known bank (more added as fixtures arrive).
-- [ ] All persistence writes from a single import wrapped in one `db.write { ... }`.
+- [x] All persistence writes from a single import wrapped in one `db.write { ... }`.
 
 ### Importing package
 
-- [ ] `PDFTextExtractor` — PDFKit `PDFDocument` → page-keyed text dictionary; preserves page boundaries (the model uses them).
-- [ ] `LLMStatementExtractor` — top-level orchestrator: redact → provider call → validate → return `ExtractedStatement`.
-- [ ] `ExtractionValidator`:
+- [x] `PDFTextExtractor` — PDFKit `PDFDocument` → page-keyed text dictionary; preserves page boundaries (the model uses them).
+- [x] `LLMStatementExtractor` — top-level orchestrator: redact → provider call → validate → return `ExtractedStatement`.
+- [x] `ExtractionValidator`:
   - Per-card-subtotal vs sum of card's transactions: ±R$0.01.
   - Grand total vs sum of all transactions: ±R$0.01.
   - International section sum vs `Total lançamentos inter. em R$`.
   - Confidence floor: warn if >2% of transactions have `confidence < 0.7`.
   - Schema validation: required fields populated, dates valid, currencies recognized.
-- [ ] `MerchantNormalizer`:
+- [x] `MerchantNormalizer`:
   - Casefold, collapse whitespace.
   - Strip trailing installment marker (`\b\d{1,2}/\d{1,2}\s*$` from raw description, since the LLM may or may not).
   - Strip leading provider prefixes (`MP *`, `IFD*`, `PIX*`).
-- [ ] `DeduplicationEngine`:
+- [x] `DeduplicationEngine`:
   - File-level: SHA-256 of original PDF bytes, unique constraint on `import_batches.source_file_sha256`.
   - Transaction fingerprint: `posted_date|merchant_normalized|amount|currency|card_last4|installment_current|installment_total|purchase_method`.
-- [ ] `ImportPipeline` — public façade, takes a `URL`, returns `ImportResult` (batch id + warnings + counts).
+- [x] `ImportPipeline` — public façade, takes a `URL`, returns `ImportResult` (batch id + warnings + counts).
 
 ### App target
 
-- [ ] `MainWindow` with `NavigationSplitView`: Transactions / Imports / Categories / Dashboard (placeholder) / Settings.
-- [ ] `OnboardingView` — first-launch flow that explains the data path (redacted text → Anthropic Claude), shows what gets redacted, links to `docs/privacy.md`, and collects the Anthropic API key. Saves into Keychain. Cannot proceed without a key.
-- [ ] `ImportDropZone` overlay on TransactionsView.
-- [ ] `FileImporter` sheet for `File → Import…` and `⌘O`.
-- [ ] `ImportProgressSheet` — phase indicators + cancel button.
-- [ ] `TransactionsView` — `Table` grouped by card section. Editable category column via inline picker.
-- [ ] `ImportsView` — list of `ImportBatch` with summary metrics + validation badge.
-- [ ] `CategoriesView` — read-only list (full CRUD in Phase 2).
-- [ ] `SettingsView`:
+- [x] `MainWindow` with `NavigationSplitView`: Transactions / Imports / Categories / Dashboard (placeholder) / Settings.
+- [x] `OnboardingView` — first-launch flow that explains the data path (redacted text → Anthropic Claude), shows what gets redacted, links to `docs/privacy.md`, and collects the Anthropic API key. Saves into Keychain. Cannot proceed without a key.
+- [x] `ImportDropZone` overlay on TransactionsView.
+- [x] `FileImporter` sheet for `File → Import…` and `⌘O`.
+- [x] `ImportProgressSheet` — phase indicators + cancel button.
+- [x] `TransactionsView` — `Table` grouped by card section. Editable category column via inline picker.
+- [x] `ImportsView` — list of `ImportBatch` with summary metrics + validation badge.
+- [x] `CategoriesView` — read-only list (full CRUD in Phase 2).
+- [x] `SettingsView`:
   - Anthropic API Key (Keychain, masked, reveal-on-click; rotate / delete)
   - Model picker (Sonnet 4.6 default; Opus 4.7 alternate)
   - Link out to `docs/privacy.md`

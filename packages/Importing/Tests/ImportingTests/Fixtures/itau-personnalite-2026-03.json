@@ -1,0 +1,153 @@
+{
+  "statement": {
+    "issuer": "Itaú Personnalité",
+    "product": "Mastercard Black",
+    "period_start": "2026-03-01",
+    "period_end": "2026-03-30",
+    "due_date": "2026-04-06",
+    "currency": "BRL",
+    "totals": {
+      "previous_balance": 0,
+      "payment_received": 0,
+      "revolving_balance": 0,
+      "current_charges_total": 16265.06
+    }
+  },
+  "cards": [
+    { "last4": "1111", "holder_name": "JOHN A DOE",       "network": "Mastercard", "tier": "Black", "subtotal": 7473.18 },
+    { "last4": "2222", "holder_name": "JOHN A DOE",       "network": "Mastercard", "tier": "Black", "subtotal": 4542.90 },
+    { "last4": "3333", "holder_name": "JANE B SMITH",    "network": "Mastercard", "tier": "Black", "subtotal": 4248.98 }
+  ],
+  "transactions": [
+    {
+      "card_last4": "1111",
+      "posted_date": "2026-03-12",
+      "posted_year_inferred": true,
+      "raw_description": "PADARIA REAL",
+      "merchant": "PADARIA REAL",
+      "merchant_city": "BELO HORIZONTE",
+      "bank_category_raw": "ALIMENTAÇÃO",
+      "amount": 87.40,
+      "currency": "BRL",
+      "purchase_method": "physical",
+      "transaction_type": "purchase",
+      "confidence": 0.98
+    },
+    {
+      "card_last4": "1111",
+      "posted_date": "2025-10-02",
+      "posted_year_inferred": true,
+      "raw_description": "VIVARA BBH 06/10",
+      "merchant": "VIVARA BBH",
+      "merchant_city": "BELO HORIZONTE",
+      "bank_category_raw": "DIVERSOS",
+      "amount": 738.58,
+      "currency": "BRL",
+      "installment_current": 6,
+      "installment_total": 10,
+      "purchase_method": "physical",
+      "transaction_type": "purchase",
+      "confidence": 0.94
+    },
+    {
+      "card_last4": "1111",
+      "posted_date": "2026-03-20",
+      "posted_year_inferred": true,
+      "raw_description": "@ NETFLIX.COM",
+      "merchant": "NETFLIX.COM",
+      "merchant_city": "SAO PAULO",
+      "bank_category_raw": "ASSINATURAS",
+      "amount": 55.90,
+      "currency": "BRL",
+      "purchase_method": "virtual_card",
+      "transaction_type": "purchase",
+      "confidence": 0.99
+    },
+    {
+      "card_last4": "1111",
+      "posted_date": "2026-03-22",
+      "posted_year_inferred": true,
+      "raw_description": "POSTO IPIRANGA",
+      "merchant": "POSTO IPIRANGA",
+      "merchant_city": "BELO HORIZONTE",
+      "bank_category_raw": "TRANSPORTE",
+      "amount": 6591.30,
+      "currency": "BRL",
+      "purchase_method": "physical",
+      "transaction_type": "purchase",
+      "confidence": 0.99
+    },
+    {
+      "card_last4": "2222",
+      "posted_date": "2026-03-05",
+      "posted_year_inferred": true,
+      "raw_description": "MERCADO MUNICIPAL",
+      "merchant": "MERCADO MUNICIPAL",
+      "merchant_city": "BELO HORIZONTE",
+      "bank_category_raw": "ALIMENTAÇÃO",
+      "amount": 4208.11,
+      "currency": "BRL",
+      "purchase_method": "physical",
+      "transaction_type": "purchase",
+      "confidence": 0.98
+    },
+    {
+      "card_last4": "2222",
+      "posted_date": "2026-03-18",
+      "posted_year_inferred": true,
+      "raw_description": "AMAZON US",
+      "merchant": "AMAZON US",
+      "merchant_city": "SEATTLE",
+      "bank_category_raw": "VAREJO",
+      "amount": 323.45,
+      "currency": "BRL",
+      "original_amount": 64.00,
+      "original_currency": "USD",
+      "fx_rate": 5.054,
+      "purchase_method": "virtual_card",
+      "transaction_type": "purchase",
+      "confidence": 0.93
+    },
+    {
+      "card_last4": "2222",
+      "posted_date": "2026-03-18",
+      "posted_year_inferred": true,
+      "raw_description": "REPASSE DE IOF",
+      "merchant": "REPASSE DE IOF",
+      "amount": 11.34,
+      "currency": "BRL",
+      "purchase_method": "unknown",
+      "transaction_type": "iof",
+      "confidence": 1.0
+    },
+    {
+      "card_last4": "3333",
+      "posted_date": "2026-03-08",
+      "posted_year_inferred": true,
+      "raw_description": "FARMACIA PACHECO",
+      "merchant": "FARMACIA PACHECO",
+      "merchant_city": "BELO HORIZONTE",
+      "bank_category_raw": "SAÚDE",
+      "amount": 1248.98,
+      "currency": "BRL",
+      "purchase_method": "physical",
+      "transaction_type": "purchase",
+      "confidence": 0.97
+    },
+    {
+      "card_last4": "3333",
+      "posted_date": "2026-03-15",
+      "posted_year_inferred": true,
+      "raw_description": "ZARA",
+      "merchant": "ZARA",
+      "merchant_city": "BELO HORIZONTE",
+      "bank_category_raw": "VESTUÁRIO",
+      "amount": 3000.00,
+      "currency": "BRL",
+      "purchase_method": "physical",
+      "transaction_type": "purchase",
+      "confidence": 0.99
+    }
+  ],
+  "warnings": []
+}

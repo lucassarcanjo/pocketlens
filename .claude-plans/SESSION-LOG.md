@@ -80,3 +80,41 @@ Append-only log of Claude sessions. Most recent at the bottom.
 **Open items / next action:**
 - User to confirm the rebuilt Phase 1 plan before any code lands.
 - Implementation order (per the plan's Next Action): Domain (Money + enums + entities) → ExtractedStatement DTO + MockLLMProvider + ExtractionPromptV1 → PDFTextExtractor → ExtractionValidator → end-to-end fixture test → AnthropicProvider → Persistence + repos → app UI.
+
+---
+
+## 2026-04-25 — Phase 1 implementation: backend + UI scaffold
+
+**Active phase:** 1 — LLM-Powered Statement Import
+**Goal this session:** Implement the entire Phase 1 stack — Domain → LLM (mock + Anthropic) → Importing pipeline → Persistence (GRDB) → SwiftUI app — and get `make test` passing end-to-end.
+
+**Shipped (89 tests passing, 0 failures across 5 packages + app):**
+- **Domain** (25 tests) — `Money`/`Currency` (Decimal-backed, currency-safe arithmetic, banker's rounding), `TransactionType`/`PurchaseMethod`/`Installment`/`ValidationStatus`/`LLMProviderKind` enums, `Account`/`Card`/`Merchant`/`Category` value types, `Transaction` with deterministic SHA-1 fingerprint (matches `docs/data-model.md` shape), `ImportBatch` with full LLM provenance, `DefaultCategories` seed data per spec §19.
+- **LLM** (27 tests) — `LLMProvider` protocol, `ExtractedStatement` Codable DTO mirroring the JSON tool schema, `ExtractionResult`, `MockLLMProvider` (canned + bundle-resource init), `ExtractionPromptV1` (versioned constant with full system prompt + tool JSON schema, snapshot-tested), `Pricing` table for Sonnet 4.6 / Opus 4.7, `Redactor` (card-number → last4, CPF, CNPJ, BR street addresses; pluggable rules; preserves merchant + city), `KeychainStore` (round-tripped against real Keychain), `AnthropicProvider` (URLSession transport — pluggable for tests; tool-use with strict schema; ephemeral cache_control on system prompt; retries on 429/5xx; usage parsing; cost computation).
+- **Importing** (21 tests) — `PDFTextExtractor` (PDFKit, page-by-page; SHA-256 helper for file dedup), `MerchantNormalizer` (casefold + collapse whitespace + strip leading provider prefixes + strip trailing installment markers), `ExtractionValidator` (per-card subtotal vs printed within R$0.01, grand total within R$0.01, orphan card refs, low-confidence threshold), `DeduplicationEngine` (in-memory fingerprint collapse, order-stable), `ImportPipeline` orchestrator → `ImportPlan` with `PendingTransaction`s. End-to-end mock-LLM-driven test against the canned fixture (3 cards, 9 transactions, installment 6/10, AMAZON US international + IOF, virtual_card glyph).
+- **Persistence** (15 tests) — `SQLiteStore` (`~/Library/Application Support/PocketLens/pocketlens.db`, WAL + foreign keys), Schema v1 migration covering all 6 tables (categories, accounts, cards, merchants, import_batches, transactions) with FK ordering, indexes per spec, UNIQUE on `transactions.fingerprint` and `import_batches.source_file_sha256`. Records bridging Domain ↔ DB. Repos for every entity. `DefaultDataSeeder` (idempotent). `ImportPersister` — single GRDB write transaction taking an `ImportPlan` → upserts account/cards/merchants → inserts batch → inserts transactions; rejects duplicate file SHA-256 with `alreadyImported(batch:)`; whole-batch rollback if any fingerprint collides cross-batch.
+- **App UI** — `AppState` env object (Keychain-backed key, store handle, model picker, reset DB), `OnboardingView` (single-screen disclosure + key paste, refuses to proceed without a key), `MainWindow` (NavigationSplitView, 5 sidebar items), `TransactionsView` (sectioned by card with method icons, installment chips, inline category picker, pt_BR currency formatting, full-area drag-and-drop, `File → Import…` / ⌘O via NotificationCenter), `ImportFlowController` (4-phase progress: extracting → calling Claude → validating → saving; surfaces `alreadyImported` as friendly "batch #N on YYYY-MM-DD" error), `ImportProgressSheet` (phase ticker + warnings disclosure), `ImportsView` (batch list with validation badge + LLM provenance + cost), `CategoriesView` (read-only, hex-color → SwiftUI Color), `SettingsView` (key reveal-on-click + save + forget; model picker; reset-DB with hard confirmation).
+
+**Decisions made:**
+- **Fingerprint shape** stays SHA-1 hex of `posted_date|merchant_normalized|amount|currency|card_last4|installment_current|installment_total|purchase_method` per the data-model doc; computable in `Domain` without a DB so tests verify it standalone.
+- **Persistence depends on Importing** — `ImportPersister` lives in `Persistence` and consumes the `ImportPlan` produced by Importing. Cleaner than putting the GRDB transaction in the app target.
+- **Migration ordering**: `categories` is created first because GRDB's `references()` resolves the target table at migration build time — forward FK declarations error with `foreign_keys = ON`.
+- **AnthropicProvider transport is pluggable** — `AnthropicTransport` protocol, default `URLSessionTransport`. Tests inject a `FakeTransport` with queued canned responses, so retries/error paths/request-shape are unit-tested without ever hitting `api.anthropic.com`.
+- **Optional cost ceilings deferred** — the plan calls for warn-at-$0.50 / hard-stop at $2.00 per import. Not wired in this pass; cost is computed and stored but not gated. Phase-1 follow-up.
+- **Categorization package** is still a placeholder enum — Phase 2's home. Touching only the build cache to make `make test-packages` pass.
+
+**Verification done this session:**
+- `swift test` passes for each of `Domain`, `LLM`, `Importing`, `Persistence`, `Categorization` individually.
+- `make gen` regenerates the Xcode project cleanly with the new `Views/` and `ViewModels/` subfolders auto-included.
+- `xcodebuild ... build` succeeds for the macOS app target.
+- `make test` end-to-end: 88 SPM tests + 1 app smoke test all pass.
+
+**NOT verified this session (explicitly):**
+- The drag-and-drop drop-zone, `File → Import…` / ⌘O, and `ImportProgressSheet` flows have not been exercised against a real PDF + real Anthropic key. The pipeline code path they wrap is unit-tested via the `MockLLMProvider`, but the macOS-side I/O (file picker, drop hover, sheet present/dismiss, key reveal) is glue that needs a manual smoke test next session.
+- The opt-in integration test against `api.anthropic.com` (gated by `POCKETLENS_LLM_INTEGRATION=1`) is in the plan but has not been wired up — `AnthropicProviderTests` covers the request shape + response decoding entirely with the fake transport.
+
+**Open items / next action:**
+- Manual smoke test the import flow on the user's machine with the gitignored `fixtures/statements/itau-personnalite-2026-03-private.pdf` and a real Anthropic key. Verify: onboarding key paste → drag-and-drop → progress sheet phases → transactions appear grouped by card → re-importing the same PDF surfaces the friendly "already imported" message.
+- Wire the $0.50 warn / $2.00 hard-stop cost ceiling around `AnthropicProvider.extractStatement`.
+- Add the opt-in `POCKETLENS_LLM_INTEGRATION` test (one-call sanity check against the real API).
+- Once the smoke test passes, mark Phase 1 ✅ in `00-OVERVIEW.md` and unblock Phase 2.

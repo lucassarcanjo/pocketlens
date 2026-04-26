@@ -9,17 +9,19 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Domain"),
-        .package(path: "../Persistence"),
-        .package(path: "../Categorization"),
+        .package(path: "../LLM"),
     ],
     targets: [
         .target(
             name: "Importing",
-            dependencies: ["Domain", "Persistence", "Categorization"]
+            dependencies: ["Domain", "LLM"]
         ),
         .testTarget(
             name: "ImportingTests",
-            dependencies: ["Importing"]
+            dependencies: ["Importing"],
+            resources: [
+                .copy("Fixtures"),
+            ]
         ),
     ]
 )
