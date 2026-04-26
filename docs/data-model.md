@@ -188,6 +188,22 @@ Every time a user overrides a category. Drives the top-priority memory match.
 | `note` | TEXT NULL | |
 | `created_at` | TEXT | |
 
+### `bank_category_mappings`
+
+Maps an issuer's own category label (`transactions.bank_category_raw`) to a PocketLens category. Drives priority-4 in the categorization chain.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `bank_name` | TEXT NULL | NULL = wildcard (applies to all issuers); issuer-specific row wins over wildcard |
+| `bank_category_raw` | TEXT | Casefolded for matching; e.g. `alimentação`, `veículos` |
+| `category_id` | INTEGER | FK → `categories.id` |
+| `created_at` / `updated_at` | TEXT | |
+
+**Unique:** `(bank_name, bank_category_raw)` — `bank_name = NULL` participates in uniqueness via SQLite's standard NULL handling, which is fine here because we only ever insert one wildcard row per `bank_category_raw`.
+
+Seeded for Itaú on first run. Extending to a new issuer is data, not code.
+
 ## Schema v3+ (Later Phases)
 
 - **Phase 4:** A `linked_transaction_id` column on `transactions` (or a small `transaction_links` join table) to connect a bank-side credit-card payment to the corresponding card import batch.

@@ -77,6 +77,9 @@ struct TransactionsView: View {
         }
     }
 
+    @State private var ruleEditorTransaction: Domain.Transaction?
+    @State private var aliasEditorTransaction: Domain.Transaction?
+
     private var transactionsList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -92,11 +95,23 @@ struct TransactionsView: View {
                                 categoryId: catId,
                                 store: app.store
                             ) }
-                        }
+                        },
+                        onCreateRule: { tx in ruleEditorTransaction = tx },
+                        onAddAlias: { tx in aliasEditorTransaction = tx }
                     )
                 }
             }
             .padding(20)
+        }
+        .sheet(item: $ruleEditorTransaction) { tx in
+            RuleEditorView(prefillFromTransaction: tx, categories: vm.categories) {
+                Task { await vm.reload(store: app.store) }
+            }
+        }
+        .sheet(item: $aliasEditorTransaction) { tx in
+            MerchantAliasEditorView(prefillFromTransaction: tx) {
+                Task { await vm.reload(store: app.store) }
+            }
         }
     }
 
@@ -170,6 +185,8 @@ private struct CardSection: View {
     let rows: [TransactionsViewModel.Row]
     let categories: [Domain.Category]
     let onCategoryPicked: (Domain.Transaction, Int64?) -> Void
+    let onCreateRule: (Domain.Transaction) -> Void
+    let onAddAlias: (Domain.Transaction) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -189,7 +206,9 @@ private struct CardSection: View {
                         categories: categories,
                         onCategoryPicked: { catId in
                             onCategoryPicked(row.transaction, catId)
-                        }
+                        },
+                        onCreateRule: { onCreateRule(row.transaction) },
+                        onAddAlias: { onAddAlias(row.transaction) }
                     )
                     Divider()
                 }
@@ -199,10 +218,12 @@ private struct CardSection: View {
     }
 }
 
-private struct TransactionRowView: View {
+struct TransactionRowView: View {
     let row: TransactionsViewModel.Row
     let categories: [Domain.Category]
     let onCategoryPicked: (Int64?) -> Void
+    var onCreateRule: (() -> Void)? = nil
+    var onAddAlias: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -230,6 +251,17 @@ private struct TransactionRowView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if !row.transaction.categorizationReason.isEmpty {
+                    CategorizationReasonBadge(
+                        reasonKey: CategorizationReasonBadge.reason(
+                            forExplanation: row.transaction.categorizationReason,
+                            confidence: row.transaction.confidence
+                        ),
+                        explanation: row.transaction.categorizationReason,
+                        confidence: row.transaction.confidence
+                    )
+                }
             }
             Spacer()
             Picker("", selection: pickerSelection) {
@@ -247,6 +279,18 @@ private struct TransactionRowView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .contextMenu {
+            if let onCreateRule {
+                Button("Create rule from this transaction…", systemImage: "plus.rectangle.on.folder") {
+                    onCreateRule()
+                }
+            }
+            if let onAddAlias {
+                Button("Add merchant alias…", systemImage: "link.badge.plus") {
+                    onAddAlias()
+                }
+            }
+        }
     }
 
     private var pickerSelection: Binding<Int64?> {

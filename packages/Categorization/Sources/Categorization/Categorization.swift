@@ -1,11 +1,12 @@
 import Foundation
-import Domain
 
-/// Namespace placeholder for the `Categorization` package.
+/// Namespace for the `Categorization` package. Phase 2 ships:
 ///
-/// Real `CategorizationEngine`, `RuleBasedCategorizer`, `MerchantAliasMatcher`,
-/// `SimilarityCategorizer`, and `CategorizationMemory` land here in Phase 2.
-/// See `.claude-plans/03-phase-2-memory.md`.
+/// - `CategorizationEngine` — runs strategies in priority order.
+/// - `CategorizationStrategy` protocol + concrete strategies for each slot.
+/// - `CategorizationInput` — DTO each strategy consumes.
+///
+/// See `docs/categorization.md` for the priority chain and confidence bands.
 public enum Categorization {
-    public static let placeholder = "PocketLens.Categorization"
+    public static let phase = "v0.2"
 }

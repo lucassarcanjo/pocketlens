@@ -2,7 +2,7 @@ import XCTest
 @testable import Categorization
 
 final class CategorizationTests: XCTestCase {
-    func testPlaceholderIsWired() {
-        XCTAssertEqual(Categorization.placeholder, "PocketLens.Categorization")
+    func testPhaseConstantIsCurrent() {
+        XCTAssertEqual(Categorization.phase, "v0.2")
     }
 }

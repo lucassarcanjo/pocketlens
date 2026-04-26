@@ -55,11 +55,38 @@ final class TransactionsViewModel: ObservableObject {
         }
     }
 
+    /// Apply a user-initiated category change. Writes the override on the
+    /// transaction itself AND records a `UserCorrection` row so the engine
+    /// can replay the choice on future imports of the same fingerprint.
     func updateCategory(transactionId: Int64, categoryId: Int64?, store: SQLiteStore?) async {
         guard let store else { return }
         do {
-            let repo = TransactionRepository(store: store)
-            try await repo.updateCategory(transactionId: transactionId, categoryId: categoryId)
+            let txRepo = TransactionRepository(store: store)
+
+            let prior = try await txRepo.find(id: transactionId)
+            let oldCategoryId = prior?.categoryId
+
+            try await txRepo.updateCategorization(
+                transactionId: transactionId,
+                categoryId: categoryId,
+                confidence: categoryId == nil ? 0.0 : 1.0,
+                reason: categoryId == nil
+                    ? "User cleared category"
+                    : "Prior user correction on this transaction"
+            )
+
+            // Only log a correction when we have a destination category and the
+            // assignment actually changed. Clearing the category isn't a "learn
+            // this" signal.
+            if let newCategoryId = categoryId, newCategoryId != oldCategoryId {
+                _ = try await UserCorrectionRepository(store: store).insert(UserCorrection(
+                    transactionId: transactionId,
+                    oldCategoryId: oldCategoryId,
+                    newCategoryId: newCategoryId,
+                    correctionType: .category
+                ))
+            }
+
             await reload(store: store)
         } catch {
             self.loadError = "Failed to update category: \(error.localizedDescription)"

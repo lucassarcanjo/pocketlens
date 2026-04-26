@@ -93,6 +93,19 @@ public struct MerchantRepository: Sendable {
             try MerchantRecord.fetchAll(db).map { $0.toDomain() }
         }
     }
+
+    /// Set or clear the merchant's `default_category_id`. Used by the alias
+    /// editor when adopting a transaction's category as the merchant's
+    /// default — required because `upsert(_:)` preserves first-seen metadata
+    /// and won't overwrite existing rows.
+    public func setDefaultCategory(merchantId: Int64, categoryId: Int64?) async throws {
+        try await dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE merchants SET default_category_id = ?, updated_at = ? WHERE id = ?",
+                arguments: [categoryId, DateFmt.iso8601.string(from: Date()), merchantId]
+            )
+        }
+    }
 }
 
 public struct CategoryRepository: Sendable {
@@ -220,6 +233,226 @@ public struct TransactionRepository: Sendable {
                 .order(Column("posted_date").desc)
                 .fetchAll(db)
                 .map { $0.toDomain() }
+        }
+    }
+
+    /// Update the categorization fields for a single transaction. Caller is
+    /// responsible for separately writing a `UserCorrection` row when the
+    /// edit is user-initiated.
+    public func updateCategorization(
+        transactionId: Int64,
+        categoryId: Int64?,
+        confidence: Double,
+        reason: String
+    ) async throws {
+        try await dbQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE transactions
+                SET category_id = ?, confidence = ?, categorization_reason = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                arguments: [categoryId, confidence, reason, DateFmt.iso8601.string(from: Date()), transactionId]
+            )
+        }
+    }
+
+    public func find(id: Int64) async throws -> Transaction? {
+        try await dbQueue.read { db in
+            try TransactionRecord
+                .filter(Column("id") == id)
+                .fetchOne(db)?
+                .toDomain()
+        }
+    }
+
+    public func findByFingerprint(_ fingerprint: String) async throws -> Transaction? {
+        try await dbQueue.read { db in
+            try TransactionRecord
+                .filter(Column("fingerprint") == fingerprint)
+                .fetchOne(db)?
+                .toDomain()
+        }
+    }
+
+    /// All transactions that already have a category assigned. Used by the
+    /// similarity strategy as the corpus to compare against.
+    public func categorized() async throws -> [Transaction] {
+        try await dbQueue.read { db in
+            try TransactionRecord
+                .filter(Column("category_id") != nil)
+                .order(Column("posted_date").desc)
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
+}
+
+// MARK: - MerchantAliasRepository
+
+public struct MerchantAliasRepository: Sendable {
+    let dbQueue: DatabaseQueue
+
+    public init(store: SQLiteStore) { self.dbQueue = store.queue }
+
+    public func insert(_ alias: MerchantAlias) async throws -> MerchantAlias {
+        try await dbQueue.write { db in
+            var rec = MerchantAliasRecord(from: alias)
+            try rec.insert(db)
+            return rec.toDomain()
+        }
+    }
+
+    public func all() async throws -> [MerchantAlias] {
+        try await dbQueue.read { db in
+            try MerchantAliasRecord.fetchAll(db).map { $0.toDomain() }
+        }
+    }
+
+    public func forMerchant(_ merchantId: Int64) async throws -> [MerchantAlias] {
+        try await dbQueue.read { db in
+            try MerchantAliasRecord
+                .filter(Column("merchant_id") == merchantId)
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
+
+    public func delete(id: Int64) async throws {
+        try await dbQueue.write { db in
+            _ = try MerchantAliasRecord.deleteOne(db, key: id)
+        }
+    }
+}
+
+// MARK: - CategorizationRuleRepository
+
+public struct CategorizationRuleRepository: Sendable {
+    let dbQueue: DatabaseQueue
+
+    public init(store: SQLiteStore) { self.dbQueue = store.queue }
+
+    public func insert(_ rule: CategorizationRule) async throws -> CategorizationRule {
+        try await dbQueue.write { db in
+            var rec = CategorizationRuleRecord(from: rule)
+            try rec.insert(db)
+            return rec.toDomain()
+        }
+    }
+
+    public func update(_ rule: CategorizationRule) async throws -> CategorizationRule {
+        try await dbQueue.write { db in
+            var rec = CategorizationRuleRecord(from: rule)
+            rec.updatedAt = DateFmt.iso8601.string(from: Date())
+            try rec.update(db)
+            return rec.toDomain()
+        }
+    }
+
+    public func delete(id: Int64) async throws {
+        try await dbQueue.write { db in
+            _ = try CategorizationRuleRecord.deleteOne(db, key: id)
+        }
+    }
+
+    public func all() async throws -> [CategorizationRule] {
+        try await dbQueue.read { db in
+            try CategorizationRuleRecord
+                .order(Column("priority").desc, Column("id"))
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
+
+    /// Enabled rules of a given source, highest priority first. The engine
+    /// queries `.user` for slot 3 and `.system` for slot 5.
+    public func enabled(by source: RuleSource) async throws -> [CategorizationRule] {
+        try await dbQueue.read { db in
+            try CategorizationRuleRecord
+                .filter(Column("enabled") == 1)
+                .filter(Column("created_by") == source.rawValue)
+                .order(Column("priority").desc, Column("id"))
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
+}
+
+// MARK: - UserCorrectionRepository
+
+public struct UserCorrectionRepository: Sendable {
+    let dbQueue: DatabaseQueue
+
+    public init(store: SQLiteStore) { self.dbQueue = store.queue }
+
+    public func insert(_ correction: UserCorrection) async throws -> UserCorrection {
+        try await dbQueue.write { db in
+            var rec = UserCorrectionRecord(from: correction)
+            try rec.insert(db)
+            return rec.toDomain()
+        }
+    }
+
+    public func all() async throws -> [UserCorrection] {
+        try await dbQueue.read { db in
+            try UserCorrectionRecord
+                .order(Column("created_at").desc)
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
+
+    public func forTransaction(_ transactionId: Int64) async throws -> [UserCorrection] {
+        try await dbQueue.read { db in
+            try UserCorrectionRecord
+                .filter(Column("transaction_id") == transactionId)
+                .order(Column("created_at").desc)
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
+}
+
+// MARK: - BankCategoryMappingRepository
+
+public struct BankCategoryMappingRepository: Sendable {
+    let dbQueue: DatabaseQueue
+
+    public init(store: SQLiteStore) { self.dbQueue = store.queue }
+
+    public func insert(_ mapping: BankCategoryMapping) async throws -> BankCategoryMapping {
+        try await dbQueue.write { db in
+            var rec = BankCategoryMappingRecord(from: mapping)
+            try rec.insert(db)
+            return rec.toDomain()
+        }
+    }
+
+    public func all() async throws -> [BankCategoryMapping] {
+        try await dbQueue.read { db in
+            try BankCategoryMappingRecord.fetchAll(db).map { $0.toDomain() }
+        }
+    }
+
+    /// Issuer-specific match wins over the wildcard `bank_name = NULL` row.
+    /// Both lookups use casefolded `bankCategoryRaw` because rows are stored
+    /// casefolded by `BankCategoryMapping.init`.
+    public func find(bankName: String?, bankCategoryRaw: String) async throws -> BankCategoryMapping? {
+        let needle = bankCategoryRaw.lowercased()
+        return try await dbQueue.read { db in
+            if let bankName,
+               let issuerRow = try BankCategoryMappingRecord
+                .filter(Column("bank_name") == bankName)
+                .filter(Column("bank_category_raw") == needle)
+                .fetchOne(db)
+            {
+                return issuerRow.toDomain()
+            }
+            return try BankCategoryMappingRecord
+                .filter(Column("bank_name") == nil)
+                .filter(Column("bank_category_raw") == needle)
+                .fetchOne(db)?
+                .toDomain()
         }
     }
 }

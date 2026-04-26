@@ -9,6 +9,7 @@ public enum Migrations {
     public static var migrator: DatabaseMigrator {
         var m = DatabaseMigrator()
         registerV1(&m)
+        registerV2(&m)
         return m
     }
 
@@ -139,6 +140,79 @@ public enum Migrations {
                 on: "transactions",
                 columns: ["import_batch_id"]
             )
+        }
+    }
+
+    private static func registerV2(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v2_phase2_memory_and_rules") { db in
+
+            try db.create(table: "merchant_aliases") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("merchant_id", .integer).notNull()
+                    .references("merchants", onDelete: .cascade)
+                t.column("alias", .text).notNull()
+                t.column("source", .text).notNull()
+                t.column("created_at", .text).notNull()
+                t.uniqueKey(["merchant_id", "alias"])
+            }
+
+            try db.create(
+                index: "idx_merchant_aliases_alias",
+                on: "merchant_aliases",
+                columns: ["alias"]
+            )
+
+            try db.create(table: "categorization_rules") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("name", .text).notNull()
+                t.column("pattern", .text).notNull()
+                t.column("pattern_type", .text).notNull()
+                t.column("merchant_id", .integer)
+                    .references("merchants", onDelete: .setNull)
+                t.column("category_id", .integer).notNull()
+                    .references("categories", onDelete: .cascade)
+                t.column("priority", .integer).notNull().defaults(to: 0)
+                t.column("created_by", .text).notNull()
+                t.column("enabled", .integer).notNull().defaults(to: 1)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+
+            try db.create(
+                index: "idx_categorization_rules_enabled",
+                on: "categorization_rules",
+                columns: ["enabled", "created_by", "priority"]
+            )
+
+            try db.create(table: "user_corrections") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("transaction_id", .integer).notNull()
+                    .references("transactions", onDelete: .cascade)
+                t.column("old_category_id", .integer)
+                    .references("categories", onDelete: .setNull)
+                t.column("new_category_id", .integer).notNull()
+                    .references("categories", onDelete: .cascade)
+                t.column("correction_type", .text).notNull()
+                t.column("note", .text)
+                t.column("created_at", .text).notNull()
+            }
+
+            try db.create(
+                index: "idx_user_corrections_transaction",
+                on: "user_corrections",
+                columns: ["transaction_id"]
+            )
+
+            try db.create(table: "bank_category_mappings") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("bank_name", .text)
+                t.column("bank_category_raw", .text).notNull()
+                t.column("category_id", .integer).notNull()
+                    .references("categories", onDelete: .cascade)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+                t.uniqueKey(["bank_name", "bank_category_raw"])
+            }
         }
     }
 }

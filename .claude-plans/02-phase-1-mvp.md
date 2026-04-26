@@ -210,10 +210,14 @@ What the fixture exercises (this is the spec for the extraction prompt):
 
 1. **Anthropic Swift SDK or roll-your-own?** Recommend roll-your-own URLSession+JSON. The surface is one POST and a typed response; pulling a third-party SDK adds maintenance.
 2. **Default model:** `claude-sonnet-4-6` is the recommendation (cheaper + fast enough on a 5–6 page statement). Opus 4.7 is offered for fallback when Sonnet fails validation.
-3. **Cost ceiling per import:** warn at $0.50, hard-stop at $2.00 (configurable). Reasonable for a 5–10 page statement at Sonnet pricing.
+3. ~~**Cost ceiling per import:** warn at $0.50, hard-stop at $2.00 (configurable).~~ **Resolved (2026-04-25):** out of scope for the app — user enforces per-key/per-org spend limits on the Anthropic console side. Cost is still computed and stored per `ImportBatch` for visibility; nothing is gated in-app.
 4. **Glyph fidelity:** PDFKit's text extraction may drop the `@` virtual-card glyph and the digital-wallet icon. We send page-by-page raw text and instruct the model to be lenient — `purchase_method = "unknown"` is acceptable when it can't determine. Better than guessing.
 5. **Year inference correctness:** the prompt instructs the model to compute year from statement close date + (for installments) `(close_date.year * 12 + close_date.month - (total_installments - current_installment + 1))`. We'll verify against the fixture and add tests.
 
 ## Next Action
 
-Confirm this plan with the user, then start with the **Domain** package (Money + enums + entities). Domain unblocks both LLM (which produces `ExtractedStatement` mirroring Domain shapes) and Persistence (which stores them). Once Domain compiles, the order is: ExtractedStatement DTO + MockLLMProvider + extraction prompt → PDFTextExtractor → ExtractionValidator → end-to-end fixture test passing → AnthropicProvider → Persistence + repositories → app UI.
+**Phase 1 closed 2026-04-25.** Manual smoke test passed end-to-end on the user's machine against `fixtures/statements/itau-personnalite-2026-03-private.pdf` with a real Anthropic key. Move to Phase 2 — see `.claude-plans/03-phase-2-memory.md`.
+
+### Phase 1 Backlog (deferred, not blocking Phase 2)
+
+- **Opt-in `POCKETLENS_LLM_INTEGRATION` test** against `api.anthropic.com` — left unimplemented for now. `AnthropicProviderTests` already covers request shape + response decoding via the fake transport; revisit only if we ever doubt the live API contract.

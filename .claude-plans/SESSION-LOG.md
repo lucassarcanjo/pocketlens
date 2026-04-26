@@ -118,3 +118,67 @@ Append-only log of Claude sessions. Most recent at the bottom.
 - Wire the $0.50 warn / $2.00 hard-stop cost ceiling around `AnthropicProvider.extractStatement`.
 - Add the opt-in `POCKETLENS_LLM_INTEGRATION` test (one-call sanity check against the real API).
 - Once the smoke test passes, mark Phase 1 ✅ in `00-OVERVIEW.md` and unblock Phase 2.
+
+---
+
+## 2026-04-25 — Phase 1 closeout: smoke test passed, Phase 2 unblocked
+
+**Active phase:** 1 → 2 transition
+**Goal this session:** Close out Phase 1 after the manual smoke test and flip Phase 2 to ⏭ ready.
+
+**Shipped:**
+- Manual smoke test passed end-to-end on the user's machine against the gitignored `fixtures/statements/itau-personnalite-2026-03-private.pdf` with a real Anthropic key. Onboarding key paste, drag-and-drop import, progress sheet phases, transactions grouped by card, and the "already imported" rejection on re-import all behaved as designed.
+- `00-OVERVIEW.md` status board: Phase 1 → ✅ done, Phase 2 → ⏭ ready to start.
+- `02-phase-1-mvp.md` Open Question #3 (cost ceiling) marked resolved; Next Action replaced with a closeout pointer to Phase 2 and a small "Phase 1 Backlog" section for the one deferred item.
+
+**Decisions made:**
+- **Cost ceiling won't ship in-app.** User is enforcing $/import spend limits on the Anthropic API/console side. Cost is still computed and stored per `ImportBatch` for visibility; nothing is gated in code.
+- **Opt-in integration test stays deferred.** `POCKETLENS_LLM_INTEGRATION=1` against the live API will not be wired up now. Fake-transport coverage in `AnthropicProviderTests` is enough until we have reason to doubt the live contract.
+
+**Open items / next action:**
+- Phase 2 (Local Memory & Rules) is ready to start — see `.claude-plans/03-phase-2-memory.md`. Pinned next action there: schema v2 migration (`merchant_aliases`, `categorization_rules`, `user_corrections`), then build `CategorizationEngine` starting with exact user-correction lookup.
+
+---
+
+## 2026-04-25 — Phase 2 implementation: memory, rules, and review UI
+
+**Active phase:** 2 — Local Memory & Rules
+**Goal this session:** Land the entire Phase 2 stack — Domain → Persistence (schema v2) → Categorization engine + strategies → ImportPipeline integration → review/rules UI — and get all DoD boxes ticked with `make test` green end-to-end.
+
+**Shipped (117 SPM tests + 1 app test passing across 5 packages + app):**
+- **Plan/docs alignment (pre-implementation).** Phase 2 plan and `docs/categorization.md` disagreed on whether bank-category mapping was a priority slot. Resolved with Option A: aligned plan to docs, added `bank_category_mappings` to schema v2, added `BankCategoryStrategy` to the engine. `bank_name` is nullable so a single seed row can serve as wildcard with issuer-specific rows winning.
+- **Domain (6 new types).** `CategorizationReason` enum (8 slots), `MerchantAlias` + `Source`, `CategorizationRule` + `PatternType` + `RuleSource`, `UserCorrection` + `CorrectionType`, `BankCategoryMapping` + `DefaultBankCategoryMappings` (Itaú → PocketLens seed table covering ALIMENTAÇÃO, VEÍCULOS, TURISMO, etc.), `CategorizationSuggestion` value type carrying `categoryId`, `confidence`, `reason`, `explanation`.
+- **Persistence (schema v2 + repos + extended seeder).** Append-only migration `v2_phase2_memory_and_rules` adding `merchant_aliases` (UNIQUE on `(merchant_id, alias)`), `categorization_rules` (with `enabled`, `priority`, `created_by`), `user_corrections`, `bank_category_mappings` (UNIQUE on `(bank_name, bank_category_raw)` with NULL-as-wildcard semantics). Records and async repos for each. `DefaultDataSeeder` extended to populate `bank_category_mappings` from `DefaultBankCategoryMappings.all` after categories are seeded — short-circuits on non-empty target table so re-running is idempotent. `TransactionRepository` got `updateCategorization`, `find(id:)`, `findByFingerprint(_:)`, `categorized()`. `MerchantRepository` got `setDefaultCategory(merchantId:categoryId:)` so the alias editor can adopt a transaction's category as the merchant's default without touching GRDB from the app target.
+- **Categorization engine (10 new files).** `CategorizationStrategy` protocol + `CategorizationInput` DTO. Eight strategies in priority order: `UserCorrectionStrategy` (fp lookup, conf 1.00), `MerchantAliasStrategy` (longest-alias-first substring match → `defaultCategoryId`, conf 0.95), `RuleStrategy` (parameterized for slots 3 + 5; matchers for `.contains` / `.exact` / `.regex` (case-insensitive, malformed-regex falls through) / `.merchant` (id equality) / `.amountRange` (`min..max` in minor units, `*` for unbounded), confs 0.90 / 0.80), `BankCategoryStrategy` (issuer-specific beats wildcard, conf 0.85), `SimilarityStrategy` (Jaccard over character bigrams, threshold 0.85, scaled into 0.50–0.85 band), `LLMSuggestionStrategy` (Phase-5 stub returning nil). `CategorizationEngine.standard(store:)` wires the production order. `CategorizationEngine.apply(to:bankName:)` walks an `ImportPlan` and returns a new plan with each transaction's `categoryId` / `confidence` / `categorizationReason` populated — the integration seam between the engine and `ImportPipeline.dryRun(...)`.
+- **Importing/Persistence wiring.** `ImportFlowController` now calls `dryRun → engine.apply → persist`, with a new `categorizing` phase between `validating` and `saving` rendered in `ImportProgressSheet`. Categorization runs after dryRun (reads existing DB state) and before persist (writes the categorized rows in one GRDB transaction). Categorization package gained an `Importing` dep (Importing → Domain/LLM, Persistence → Importing, Categorization → Persistence/Importing — no cycle).
+- **App UI.** New sidebar entries: **Review** and **Rules**. `CategorizationReasonBadge` renders below each transaction row with reason-keyed icon + tint + confidence percent; reason key is recovered heuristically from the explanation prefix (cheap inference, deferred adding a `categorization_reason_key` column to schema). `TransactionsViewModel.updateCategory(...)` now writes a `UserCorrection` row when the assignment changes — closing the memory loop. Right-click on any transaction row exposes "Create rule from this transaction…" and "Add merchant alias…" actions wired to two new sheets. `RuleEditorView` (full CRUD form: pattern type + pattern + category + name + priority + enabled, with pre-fill from a transaction). `MerchantAliasEditorView` (alias text + anchor merchant; on save it inserts the alias and sets the merchant's `defaultCategoryId` to the transaction's category so the alias has something to assign on next import). `RulesListView` lists user vs system rules with edit/delete (system rules read-only). `ReviewView` filters by uncategorized / low-confidence (<0.50) / needs-review (0.50–0.79) / all-flagged, sorted by confidence ascending.
+- **Tests.** Persistence: schema v2 tables present, 7 new repo tests covering UNIQUE constraints, priority ordering, source filtering, disabled exclusion, issuer-specific-beats-wildcard at the repo, seeder default-population + idempotency. Categorization: 5 RuleStrategy tests (one per `PatternType` + malformed regex falls through + priority desc), 2 MerchantAliasStrategy tests (variant collapse, no-default-category fallthrough), 5 BankCategoryStrategy tests (case-insensitivity, wildcard fallback, issuer-specific tiebreak), 3 UserCorrectionStrategy tests, 4 SimilarityStrategy tests (identical / near match / below threshold / empty corpus), 5 EnginePriorityTests (slot-vs-slot tiebreaks, uncategorized fallthrough, confidence-band assertions across all strategies), 1 ImportPlanCategorizationTests covering `engine.apply(to:bankName:)` end-to-end against a built plan. Total: 29 categorization tests + 25 persistence tests, 117 SPM-level + 1 app-target test all green.
+
+**Decisions made:**
+- **Bank-category-mapping promoted to slot 4 (Option A from earlier this session).** Plan and docs both updated. Itaú statements already carry `bank_category_raw` for free, so this is the cheapest "right out of the gate" categorization win we have before any user rules exist. `bank_name = NULL` rows act as wildcards; issuer-specific rows beat them at lookup time. `bank_category_raw` is stored casefolded so matching is plain equality.
+- **Strategies own their persistence queries**, no separate `CategorizationMemory` facade. Each strategy takes a `SQLiteStore` and queries the repos it needs. Simpler than a fat protocol, and tests inject an in-memory store directly. Updated the plan task to reflect this.
+- **CategorizationReason isn't persisted as a column.** The free-text `categorization_reason` field stores the human-readable explanation; the structured key is inferred at render time by `CategorizationReasonBadge.reason(forExplanation:confidence:)` from the explanation prefix. Heuristic, but stable as long as the engine's explanation phrases stay stable. Added an entry to the Phase-2 backlog to add a `categorization_reason_key` column when it bites us.
+- **Categorization runs between dryRun and persist, not inside persist.** Engine queries open their own GRDB read transactions, so they can't safely run inside a write transaction without deadlock. Net effect: categorization sees a consistent snapshot, then a single write block lands the new rows.
+- **User-correction matching is fingerprint-only in Phase 2.** Slot 1 (`UserCorrectionStrategy`) compares against a prior transaction with the *same* fingerprint, which only fires on overlapping re-imports. Cross-statement learning (correct January's PADARIA REAL → applies to February's recurring) is deferred to Phase 4, where bank-statement linkage will introduce a softer match key. Documented in the Phase-2 backlog.
+- **Bulk category assignment deferred.** DoD covered by the single-row picker; revisit if the review queue gets long enough to feel painful.
+- **Phase 1's `confidence` field doubles as Phase 2's categorization confidence.** Phase 1 was using it for LLM-extraction confidence (placeholder until Phase 2 took over), and the engine now overwrites it with the strategy's confidence band. Single field, two phases — documented in the categorization apply step.
+
+**Open items / next action:**
+- Manual smoke test on the user's machine against `fixtures/statements/itau-personnalite-2026-03-private.pdf` (gitignored). Verify: the categorizing phase appears in the progress sheet; transactions land with reason badges populated; bank-category-mapping fires on Itaú labels (e.g. "VEÍCULOS" → Transporte at conf 0.85); right-click "Create rule" opens the editor pre-filled with the merchant_normalized; saving a rule and re-running the import causes that rule to win against the bank-mapping; review queue shows uncategorized rows.
+- After smoke test passes, mark Phase 2 ✅ in `00-OVERVIEW.md` and unblock Phase 3.
+
+---
+
+## 2026-04-25 — Phase 2 closeout: smoke test passed, Phase 3 unblocked
+
+**Active phase:** 2 → 3 transition
+**Goal this session:** Close out Phase 2 after the manual smoke test and flip Phase 3 to ⏭ ready.
+
+**Shipped:**
+- Manual smoke test of the Phase 2 stack passed end-to-end on the user's machine against the gitignored `fixtures/statements/itau-personnalite-2026-03-private.pdf`. Categorizing phase shows in the progress sheet, reason badges render, bank-category-mapping fires on Itaú labels, "Create rule from this transaction" pre-fills and persists, review queue surfaces uncategorized rows, and a saved user rule wins over the bank-mapping on re-import.
+- `00-OVERVIEW.md` status board: Phase 2 → ✅ done, Phase 3 → ⏭ ready to start.
+- `03-phase-2-memory.md` Next Action replaced with a closeout pointer to Phase 3.
+
+**Open items / next action:**
+- Phase 2 implementation is currently uncommitted on `main` — see `git status` (Domain + Persistence + Categorization + app/Views diffs plus the modified `docs/data-model.md`). Take the Phase 2 commit before starting Phase 3.
+- Phase 3 (Dashboard, v0.3) is ready — see `.claude-plans/04-phase-3-dashboard.md` for the pinned next action.

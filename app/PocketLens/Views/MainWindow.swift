@@ -2,8 +2,10 @@ import SwiftUI
 
 enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
     case transactions
+    case review
     case imports
     case categories
+    case rules
     case dashboard
     case settings
 
@@ -12,8 +14,10 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .transactions: return "Transactions"
+        case .review:       return "Review"
         case .imports:      return "Imports"
         case .categories:   return "Categories"
+        case .rules:        return "Rules"
         case .dashboard:    return "Dashboard"
         case .settings:     return "Settings"
         }
@@ -22,8 +26,10 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .transactions: return "list.bullet.rectangle"
+        case .review:       return "checklist"
         case .imports:      return "tray.and.arrow.down"
         case .categories:   return "tag"
+        case .rules:        return "slider.horizontal.3"
         case .dashboard:    return "chart.bar.xaxis"
         case .settings:     return "gearshape"
         }
@@ -44,8 +50,10 @@ struct MainWindow: View {
         } detail: {
             switch selection ?? .transactions {
             case .transactions: TransactionsView()
+            case .review:       ReviewView()
             case .imports:      ImportsView()
             case .categories:   CategoriesView()
+            case .rules:        RulesListView()
             case .dashboard:    DashboardPlaceholderView()
             case .settings:     SettingsView()
             }

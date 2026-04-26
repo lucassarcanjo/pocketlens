@@ -20,6 +20,7 @@ struct ImportProgressSheet: View {
                 phaseRow("Extracting text",      active: controller.phase == .extractingText)
                 phaseRow("Calling Claude",       active: controller.phase == .callingLLM)
                 phaseRow("Validating totals",    active: controller.phase == .validating)
+                phaseRow("Categorizing",         active: controller.phase == .categorizing)
                 phaseRow("Saving to database",   active: controller.phase == .saving)
             }
             .padding(.vertical, 4)

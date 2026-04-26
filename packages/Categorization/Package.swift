@@ -10,12 +10,13 @@ let package = Package(
     dependencies: [
         .package(path: "../Domain"),
         .package(path: "../Persistence"),
+        .package(path: "../Importing"),
         .package(path: "../LLM"),
     ],
     targets: [
         .target(
             name: "Categorization",
-            dependencies: ["Domain", "Persistence", "LLM"]
+            dependencies: ["Domain", "Persistence", "Importing", "LLM"]
         ),
         .testTarget(
             name: "CategorizationTests",

@@ -3,6 +3,7 @@ import SwiftUI
 import Domain
 import Persistence
 import Importing
+import Categorization
 import LLM
 
 /// Drives the import-a-PDF flow: file picker → progress sheet → save.
@@ -16,6 +17,7 @@ final class ImportFlowController: ObservableObject {
         case extractingText
         case callingLLM
         case validating
+        case categorizing
         case saving
         case done(transactionCount: Int)
         case error(String)
@@ -26,6 +28,7 @@ final class ImportFlowController: ObservableObject {
             case .extractingText:             return "Extracting text…"
             case .callingLLM:                 return "Calling Claude…"
             case .validating:                 return "Validating totals…"
+            case .categorizing:               return "Categorizing transactions…"
             case .saving:                     return "Saving to database…"
             case .done(let n):                return "Imported \(n) transactions"
             case .error(let msg):             return "Failed: \(msg)"
@@ -66,19 +69,24 @@ final class ImportFlowController: ObservableObject {
         do {
             phase = .extractingText
             let pipeline = ImportPipeline(provider: provider, ocr: ocr)
+            let bankName = pipeline.defaultBankName
 
             phase = .callingLLM
-            let plan = try await pipeline.dryRun(url: url)
+            let rawPlan = try await pipeline.dryRun(url: url)
 
             phase = .validating
             // Pipeline already validated; if it failed catastrophically we'd
             // want to surface that. For Phase 1 we accept warnings and persist.
 
+            phase = .categorizing
+            let engine = CategorizationEngine.standard(store: store)
+            let plan = try await engine.apply(to: rawPlan, bankName: bankName)
+
             phase = .saving
             let persister = ImportPersister(store: store)
             let result = try await persister.persist(
                 plan: plan,
-                bankName: "Itaú"  // Phase 1 default; Phase 6 widens this.
+                bankName: bankName  // Phase 6 widens this when multi-bank lands.
             )
             self.lastWarnings = result.batch.parseWarnings
             self.phase = .done(transactionCount: result.transactionCount)

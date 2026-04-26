@@ -50,4 +50,20 @@ final class MigrationsTests: XCTestCase {
             "expected a unique index on transactions.fingerprint, got: \(indexes)"
         )
     }
+
+    func testV2TablesPresent() throws {
+        let store = try SQLiteStore.makeInMemory()
+        let tables: [String] = try store.queue.read { db in
+            try String.fetchAll(
+                db,
+                sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+            )
+        }
+        let expected: Set<String> = [
+            "merchant_aliases", "categorization_rules",
+            "user_corrections", "bank_category_mappings",
+        ]
+        XCTAssertTrue(expected.isSubset(of: Set(tables)),
+                      "missing v2 tables: \(expected.subtracting(Set(tables)))")
+    }
 }

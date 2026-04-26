@@ -462,3 +462,193 @@ struct TransactionRecord: Codable, FetchableRecord, MutablePersistableRecord {
         )
     }
 }
+
+// MARK: - MerchantAliasRecord
+
+struct MerchantAliasRecord: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "merchant_aliases"
+    var id: Int64?
+    var merchantId: Int64
+    var alias: String
+    var source: String
+    var createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case merchantId = "merchant_id"
+        case alias
+        case source
+        case createdAt = "created_at"
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+
+    init(from a: MerchantAlias) {
+        self.id = a.id
+        self.merchantId = a.merchantId
+        self.alias = a.alias
+        self.source = a.source.rawValue
+        self.createdAt = DateFmt.iso8601.string(from: a.createdAt)
+    }
+
+    func toDomain() -> MerchantAlias {
+        MerchantAlias(
+            id: id,
+            merchantId: merchantId,
+            alias: alias,
+            source: MerchantAlias.Source(rawValue: source) ?? .user,
+            createdAt: DateFmt.iso8601.date(from: createdAt) ?? Date()
+        )
+    }
+}
+
+// MARK: - CategorizationRuleRecord
+
+struct CategorizationRuleRecord: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "categorization_rules"
+    var id: Int64?
+    var name: String
+    var pattern: String
+    var patternType: String
+    var merchantId: Int64?
+    var categoryId: Int64
+    var priority: Int
+    var createdBy: String
+    var enabled: Int
+    var createdAt: String
+    var updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, pattern
+        case patternType = "pattern_type"
+        case merchantId = "merchant_id"
+        case categoryId = "category_id"
+        case priority
+        case createdBy = "created_by"
+        case enabled
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+
+    init(from r: CategorizationRule) {
+        self.id = r.id
+        self.name = r.name
+        self.pattern = r.pattern
+        self.patternType = r.patternType.rawValue
+        self.merchantId = r.merchantId
+        self.categoryId = r.categoryId
+        self.priority = r.priority
+        self.createdBy = r.createdBy.rawValue
+        self.enabled = r.enabled ? 1 : 0
+        self.createdAt = DateFmt.iso8601.string(from: r.createdAt)
+        self.updatedAt = DateFmt.iso8601.string(from: r.updatedAt)
+    }
+
+    func toDomain() -> CategorizationRule {
+        CategorizationRule(
+            id: id,
+            name: name,
+            pattern: pattern,
+            patternType: PatternType(rawValue: patternType) ?? .contains,
+            merchantId: merchantId,
+            categoryId: categoryId,
+            priority: priority,
+            createdBy: RuleSource(rawValue: createdBy) ?? .user,
+            enabled: enabled != 0,
+            createdAt: DateFmt.iso8601.date(from: createdAt) ?? Date(),
+            updatedAt: DateFmt.iso8601.date(from: updatedAt) ?? Date()
+        )
+    }
+}
+
+// MARK: - UserCorrectionRecord
+
+struct UserCorrectionRecord: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "user_corrections"
+    var id: Int64?
+    var transactionId: Int64
+    var oldCategoryId: Int64?
+    var newCategoryId: Int64
+    var correctionType: String
+    var note: String?
+    var createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case transactionId = "transaction_id"
+        case oldCategoryId = "old_category_id"
+        case newCategoryId = "new_category_id"
+        case correctionType = "correction_type"
+        case note
+        case createdAt = "created_at"
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+
+    init(from c: UserCorrection) {
+        self.id = c.id
+        self.transactionId = c.transactionId
+        self.oldCategoryId = c.oldCategoryId
+        self.newCategoryId = c.newCategoryId
+        self.correctionType = c.correctionType.rawValue
+        self.note = c.note
+        self.createdAt = DateFmt.iso8601.string(from: c.createdAt)
+    }
+
+    func toDomain() -> UserCorrection {
+        UserCorrection(
+            id: id,
+            transactionId: transactionId,
+            oldCategoryId: oldCategoryId,
+            newCategoryId: newCategoryId,
+            correctionType: UserCorrection.CorrectionType(rawValue: correctionType) ?? .category,
+            note: note,
+            createdAt: DateFmt.iso8601.date(from: createdAt) ?? Date()
+        )
+    }
+}
+
+// MARK: - BankCategoryMappingRecord
+
+struct BankCategoryMappingRecord: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "bank_category_mappings"
+    var id: Int64?
+    var bankName: String?
+    var bankCategoryRaw: String
+    var categoryId: Int64
+    var createdAt: String
+    var updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case bankName = "bank_name"
+        case bankCategoryRaw = "bank_category_raw"
+        case categoryId = "category_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+
+    init(from m: BankCategoryMapping) {
+        self.id = m.id
+        self.bankName = m.bankName
+        self.bankCategoryRaw = m.bankCategoryRaw
+        self.categoryId = m.categoryId
+        self.createdAt = DateFmt.iso8601.string(from: m.createdAt)
+        self.updatedAt = DateFmt.iso8601.string(from: m.updatedAt)
+    }
+
+    func toDomain() -> BankCategoryMapping {
+        BankCategoryMapping(
+            id: id,
+            bankName: bankName,
+            bankCategoryRaw: bankCategoryRaw,
+            categoryId: categoryId,
+            createdAt: DateFmt.iso8601.date(from: createdAt) ?? Date(),
+            updatedAt: DateFmt.iso8601.date(from: updatedAt) ?? Date()
+        )
+    }
+}
